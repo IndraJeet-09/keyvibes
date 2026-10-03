@@ -5,7 +5,7 @@
 
 use crate::error::InputError;
 use evdev::{Device, EventType, Key};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Information about a discovered keyboard device.
 #[derive(Debug, Clone)]
@@ -20,8 +20,7 @@ pub fn discover_keyboards() -> Result<Vec<KeyboardInfo>, InputError> {
     let mut keyboards = Vec::new();
 
     // Enumerate all event devices
-    let devices = evdev::enumerate()
-        .map_err(|e| InputError::EnumerationFailed(e.to_string()))?;
+    let devices = evdev::enumerate();
 
     for (path, device) in devices {
         if is_keyboard(&device) {

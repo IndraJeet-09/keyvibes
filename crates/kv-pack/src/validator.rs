@@ -1,6 +1,7 @@
 //! Full pack validation.
 
 use crate::error::{PackError, PackResult};
+use crate::format::*;
 use crate::header::Header;
 use crate::parser::{ClipEntry, KeyEntry};
 

@@ -279,8 +279,7 @@ mod tests {
     #[test]
     fn test_parse_key_entry() {
         let mut data = vec![0u8; KEY_ENTRY_SIZE];
-        // PhysicalKey::A = 67
-        data[0..2].copy_from_slice(&67u16.to_le_bytes());
+        data[0..2].copy_from_slice(&PhysicalKey::A.as_u16().to_le_bytes());
         // 3 variants
         data[2..4].copy_from_slice(&3u16.to_le_bytes());
         // first_clip = 10

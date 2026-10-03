@@ -272,17 +272,18 @@ mod tests {
         // Header size
         data[12..16].copy_from_slice(&HEADER_SIZE.to_le_bytes());
 
-        // File size (just header)
-        data[16..24].copy_from_slice(&(HEADER_SIZE as u64).to_le_bytes());
+        // File size (128 for 16-byte alignment)
+        data[16..24].copy_from_slice(&(128u64).to_le_bytes());
 
         // Counts = 0
 
-        // Offsets after header
+        // Offsets after header (aligned to 16 bytes for sample_data)
         let after_header = HEADER_SIZE as u64;
+        let sample_offset = 128u64; // 16-byte aligned
         data[32..40].copy_from_slice(&after_header.to_le_bytes()); // metadata
         data[44..52].copy_from_slice(&after_header.to_le_bytes()); // key table
         data[56..64].copy_from_slice(&after_header.to_le_bytes()); // clip table
-        data[68..76].copy_from_slice(&after_header.to_le_bytes()); // sample data
+        data[68..76].copy_from_slice(&sample_offset.to_le_bytes()); // sample data
 
         // Sample rate
         data[84..88].copy_from_slice(&48000u32.to_le_bytes());
@@ -299,7 +300,7 @@ mod tests {
     #[test]
     fn test_valid_minimal_header() {
         let data = make_minimal_header();
-        let header = Header::parse(&data, HEADER_SIZE as u64).unwrap();
+        let header = Header::parse(&data, 128).unwrap();
         assert_eq!(header.format_version, FORMAT_VERSION);
         assert_eq!(header.key_count, 0);
         assert_eq!(header.clip_count, 0);
@@ -310,7 +311,7 @@ mod tests {
         let mut data = make_minimal_header();
         data[0] = 0xFF;
         assert!(matches!(
-            Header::parse(&data, HEADER_SIZE as u64),
+            Header::parse(&data, 128),
             Err(PackError::InvalidMagic)
         ));
     }
@@ -320,7 +321,7 @@ mod tests {
         let mut data = make_minimal_header();
         data[8] = 99; // version = 99
         assert!(matches!(
-            Header::parse(&data, HEADER_SIZE as u64),
+            Header::parse(&data, 128),
             Err(PackError::UnsupportedVersion(99))
         ));
     }

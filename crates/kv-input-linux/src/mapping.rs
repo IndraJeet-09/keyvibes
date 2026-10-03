@@ -28,16 +28,16 @@ pub fn map_keycode(key: Key) -> Option<PhysicalKey> {
 
         // Number row
         Key::KEY_GRAVE => Some(PhysicalKey::Grave),
-        Key::KEY_1 => Some(PhysicalKey::Key1),
-        Key::KEY_2 => Some(PhysicalKey::Key2),
-        Key::KEY_3 => Some(PhysicalKey::Key3),
-        Key::KEY_4 => Some(PhysicalKey::Key4),
-        Key::KEY_5 => Some(PhysicalKey::Key5),
-        Key::KEY_6 => Some(PhysicalKey::Key6),
-        Key::KEY_7 => Some(PhysicalKey::Key7),
-        Key::KEY_8 => Some(PhysicalKey::Key8),
-        Key::KEY_9 => Some(PhysicalKey::Key9),
-        Key::KEY_0 => Some(PhysicalKey::Key0),
+        Key::KEY_1 => Some(PhysicalKey::Digit1),
+        Key::KEY_2 => Some(PhysicalKey::Digit2),
+        Key::KEY_3 => Some(PhysicalKey::Digit3),
+        Key::KEY_4 => Some(PhysicalKey::Digit4),
+        Key::KEY_5 => Some(PhysicalKey::Digit5),
+        Key::KEY_6 => Some(PhysicalKey::Digit6),
+        Key::KEY_7 => Some(PhysicalKey::Digit7),
+        Key::KEY_8 => Some(PhysicalKey::Digit8),
+        Key::KEY_9 => Some(PhysicalKey::Digit9),
+        Key::KEY_0 => Some(PhysicalKey::Digit0),
         Key::KEY_MINUS => Some(PhysicalKey::Minus),
         Key::KEY_EQUAL => Some(PhysicalKey::Equal),
         Key::KEY_BACKSPACE => Some(PhysicalKey::Backspace),
@@ -83,7 +83,7 @@ pub fn map_keycode(key: Key) -> Option<PhysicalKey> {
         Key::KEY_N => Some(PhysicalKey::N),
         Key::KEY_M => Some(PhysicalKey::M),
         Key::KEY_COMMA => Some(PhysicalKey::Comma),
-        Key::KEY_DOT => Some(PhysicalKey::Dot),
+        Key::KEY_DOT => Some(PhysicalKey::Period),
         Key::KEY_SLASH => Some(PhysicalKey::Slash),
         Key::KEY_RIGHTSHIFT => Some(PhysicalKey::RightShift),
 
@@ -153,8 +153,8 @@ mod tests {
 
     #[test]
     fn test_number_keys() {
-        assert_eq!(map_keycode(Key::KEY_1), Some(PhysicalKey::Key1));
-        assert_eq!(map_keycode(Key::KEY_0), Some(PhysicalKey::Key0));
+        assert_eq!(map_keycode(Key::KEY_1), Some(PhysicalKey::Digit1));
+        assert_eq!(map_keycode(Key::KEY_0), Some(PhysicalKey::Digit0));
     }
 
     #[test]

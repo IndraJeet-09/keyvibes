@@ -13,7 +13,7 @@ use std::fmt;
 ///
 /// Variants are ordered to match typical keyboard layouts for array indexing.
 #[repr(u16)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PhysicalKey {
     // Function row

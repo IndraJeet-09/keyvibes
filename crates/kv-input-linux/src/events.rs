@@ -4,7 +4,7 @@
 
 use crate::mapping::map_keycode;
 use evdev::{EventType, InputEvent, Key};
-use kv_core::{PhysicalKey, PlayCommand};
+use kv_core::PhysicalKey;
 
 /// Result of processing an input event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +82,7 @@ mod tests {
 
     // Helper to create a synthetic InputEvent
     fn make_event(event_type: EventType, code: u16, value: i32) -> InputEvent {
-        InputEvent::new(event_type, code, value)
+        InputEvent::new(event_type.0, code, value)
     }
 
     #[test]

@@ -57,7 +57,7 @@ impl KeyboardDevice {
                 match self.device.fetch_events() {
                     Ok(events) => {
                         for event in events {
-                            self.handle_event(&event, &queue);
+                            Self::handle_event_static(&self.stats, &event, &queue);
                         }
                     }
                     Err(e) => {
@@ -80,12 +80,12 @@ impl KeyboardDevice {
     }
 
     /// Handles a single input event.
-    fn handle_event(&self, event: &evdev::InputEvent, queue: &Arc<SpscRing<PlayCommand>>) {
+    fn handle_event_static(stats: &Arc<InputStats>, event: &evdev::InputEvent, queue: &Arc<SpscRing<PlayCommand>>) {
         let result = process_event(event);
 
         match result {
-            EventResult::Press(physical_key) => {
-                self.stats.increment_press();
+            EventResult::Press(_physical_key) => {
+                stats.increment_press();
 
                 // Create PlayCommand - stub for now since we don't have sound packs yet
                 // In Phase 4, this will load actual samples
@@ -104,23 +104,23 @@ impl KeyboardDevice {
 
                 // Try to push to queue
                 if queue.push(cmd).is_err() {
-                    self.stats.increment_command_dropped();
+                    stats.increment_command_dropped();
                 } else {
-                    self.stats.increment_command_generated();
+                    stats.increment_command_generated();
                 }
             }
-            EventResult::Release(physical_key) => {
-                self.stats.increment_release();
+            EventResult::Release(_physical_key) => {
+                stats.increment_release();
                 // Release handling can be added later if needed
             }
             EventResult::Repeat => {
-                self.stats.increment_repeat_ignored();
+                stats.increment_repeat_ignored();
             }
             EventResult::Unknown => {
-                self.stats.increment_unknown();
+                stats.increment_unknown();
             }
             EventResult::Dropped => {
-                self.stats.increment_dropped();
+                stats.increment_dropped();
                 // After SYN_DROPPED, device state is out of sync
                 // The evdev crate handles resynchronization automatically
             }

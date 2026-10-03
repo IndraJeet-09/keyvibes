@@ -11,10 +11,14 @@ repository.workspace = true
 kv-core.workspace = true
 memmap2 = "0.9"
 thiserror.workspace = true
+hound = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
-hound = "3.5"  # For WAV decoding in builder
+hound.workspace = true
 
 [features]
-builder = []  # Enable pack building functionality
+default = ["builder"]
+builder = ["dep:hound", "dep:serde", "dep:toml"]

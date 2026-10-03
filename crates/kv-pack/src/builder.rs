@@ -415,15 +415,14 @@ mod tests {
     fn test_too_many_variants() {
         let mut builder = PackBuilder::new();
 
-        for _ in 0..=MAX_VARIANTS_PER_KEY {
+        for _ in 0..MAX_VARIANTS_PER_KEY {
             let samples = vec![0i16; 100];
             let clip = ClipData::from_samples(samples, 48000).unwrap();
-            let result = builder.add_clip(PhysicalKey::A, clip);
-
-            if builder.keys[&PhysicalKey::A].len() >= MAX_VARIANTS_PER_KEY as usize {
-                assert!(result.is_err());
-                break;
-            }
+            assert!(builder.add_clip(PhysicalKey::A, clip).is_ok());
         }
+
+        let samples = vec![0i16; 100];
+        let clip = ClipData::from_samples(samples, 48000).unwrap();
+        assert!(builder.add_clip(PhysicalKey::A, clip).is_err());
     }
 }

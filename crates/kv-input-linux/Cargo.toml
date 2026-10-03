@@ -11,6 +11,7 @@ repository.workspace = true
 kv-core.workspace = true
 kv-ring.workspace = true
 evdev.workspace = true
+libc.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

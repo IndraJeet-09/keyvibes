@@ -149,6 +149,16 @@ pub enum PackError {
 
     #[error("Memory mapping failed: {0}")]
     MmapFailed(String),
+
+    #[error("Unsupported audio format: {0}")]
+    UnsupportedFormat(String),
+
+    #[error("Manifest error: {0}")]
+    ManifestError(String),
+
+    #[cfg(feature = "builder")]
+    #[error("WAV error: {0}")]
+    Wav(#[from] hound::Error),
 }
 
 pub type PackResult<T> = Result<T, PackError>;

@@ -4,6 +4,7 @@
 //! to the audio thread without blocking or allocation.
 
 use std::cell::UnsafeCell;
+use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A lock-free SPSC (Single Producer Single Consumer) ring buffer.
@@ -22,7 +23,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[repr(C)]
 pub struct SpscRing<T> {
     /// Storage for ring buffer elements.
-    buffer: Box<[UnsafeCell<T>]>,
+    buffer: Box<[UnsafeCell<MaybeUninit<T>>]>,
 
     /// Capacity (must be power of two).
     capacity: usize,
@@ -61,8 +62,37 @@ impl<T: Copy> SpscRing<T> {
         assert!(capacity > 0, "Capacity must be greater than zero");
         assert!(capacity.is_power_of_two(), "Capacity must be a power of two");
 
-        let buffer: Vec<UnsafeCell<T>> = (0..capacity)
-            .map(|_| UnsafeCell::new(T::default()))
+        let buffer: Vec<UnsafeCell<MaybeUninit<T>>> = (0..capacity)
+            .map(|_| UnsafeCell::new(MaybeUninit::new(T::default())))
+            .collect();
+
+        Self {
+            buffer: buffer.into_boxed_slice(),
+            capacity,
+            mask: capacity - 1,
+            _pad0: [0; 64],
+            tail: AtomicUsize::new(0),
+            _pad1: [0; 64],
+            _pad2: [0; 64],
+            head: AtomicUsize::new(0),
+            _pad3: [0; 64],
+        }
+    }
+
+    /// Creates a new SPSC ring buffer with the given capacity.
+    ///
+    /// Unlike `new`, this does not require `T: Default`.
+    /// The buffer entries will be uninitialized until written.
+    ///
+    /// # Panics
+    ///
+    /// Panics if capacity is not a power of two or is zero.
+    pub fn with_capacity(capacity: usize) -> Self {
+        assert!(capacity > 0, "Capacity must be greater than zero");
+        assert!(capacity.is_power_of_two(), "Capacity must be a power of two");
+
+        let buffer: Vec<UnsafeCell<MaybeUninit<T>>> = (0..capacity)
+            .map(|_| UnsafeCell::new(MaybeUninit::uninit()))
             .collect();
 
         Self {
@@ -130,7 +160,9 @@ impl<T: Copy> SpscRing<T> {
         // Write the value
         let index = tail & self.mask;
         unsafe {
-            (*self.buffer[index].get()) = value;
+            // Handle both MaybeUninit and T
+            let ptr = self.buffer[index].get() as *mut T;
+            std::ptr::write(ptr, value);
         }
 
         // Advance tail with Release ordering to ensure the write is visible
@@ -158,7 +190,10 @@ impl<T: Copy> SpscRing<T> {
 
         // Read the value
         let index = head & self.mask;
-        let value = unsafe { (*self.buffer[index].get()) };
+        let value = unsafe {
+            let ptr = self.buffer[index].get() as *const T;
+            std::ptr::read(ptr)
+        };
 
         // Advance head with Release ordering
         self.head.store(head.wrapping_add(1), Ordering::Release);

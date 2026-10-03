@@ -3,7 +3,7 @@
 //! This module handles evdev events and converts them into PlayCommands.
 
 use crate::mapping::map_keycode;
-use evdev::{EventType, InputEvent, Key};
+use evdev::{EventType, InputEvent, KeyCode as Key};
 use kv_core::PhysicalKey;
 
 /// Result of processing an input event.

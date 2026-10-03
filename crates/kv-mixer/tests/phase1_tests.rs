@@ -35,13 +35,13 @@ fn generate_sine_wave(freq: f32, sample_rate: u32, duration_secs: f32) -> Vec<i1
 /// Generates a short click/impulse.
 fn generate_click() -> Vec<i16> {
     vec![
-        0, 0,           // guard samples
-        16000, 8000, -8000, -4000, 2000, -1000, 500, -250, 0,
-        0, 0, 0,        // guard samples
+        0, 0, // guard samples
+        16000, 8000, -8000, -4000, 2000, -1000, 500, -250, 0, 0, 0, 0, // guard samples
     ]
 }
 
 /// Generates silence.
+#[allow(dead_code)]
 fn generate_silence(sample_count: usize) -> Vec<i16> {
     vec![0; sample_count + 5]
 }
@@ -107,7 +107,11 @@ fn test_single_voice_click() {
 
     // Should have a transient
     let peak = output.iter().map(|&s| s.abs()).fold(0.0f32, f32::max);
-    assert!(peak > 0.1, "Expected strong transient from click, got peak={}", peak);
+    assert!(
+        peak > 0.1,
+        "Expected strong transient from click, got peak={}",
+        peak
+    );
 }
 
 #[test]
@@ -140,11 +144,19 @@ fn test_eight_overlapping_voices() {
 
     // Should produce audible output
     let rms = (output.iter().map(|&s| s * s).sum::<f32>() / output.len() as f32).sqrt();
-    assert!(rms > 0.05, "Expected significant RMS from 8 voices, got {}", rms);
+    assert!(
+        rms > 0.05,
+        "Expected significant RMS from 8 voices, got {}",
+        rms
+    );
 
     // Should not clip (limiter should prevent this)
     let peak = output.iter().map(|&s| s.abs()).fold(0.0f32, f32::max);
-    assert!(peak <= 1.0, "Output should be limited to ±1.0, got peak={}", peak);
+    assert!(
+        peak <= 1.0,
+        "Output should be limited to ±1.0, got peak={}",
+        peak
+    );
 }
 
 #[test]
@@ -264,7 +276,7 @@ fn test_sample_rate_conversion() {
     let mut mixer = Mixer::new(48000);
 
     // Calculate step for 44.1 -> 48kHz conversion
-    let step = ((44100u64 << 32) / 48000) as u64;
+    let step = (44100u64 << 32) / 48000;
 
     let cmd = unsafe {
         PlayCommand::new(
@@ -320,8 +332,12 @@ fn test_stereo_panning() {
     let left_energy: f32 = output.iter().step_by(2).map(|&s| s * s).sum();
     let right_energy: f32 = output.iter().skip(1).step_by(2).map(|&s| s * s).sum();
 
-    assert!(left_energy > right_energy * 10.0,
-            "Left channel should dominate, left={}, right={}", left_energy, right_energy);
+    assert!(
+        left_energy > right_energy * 10.0,
+        "Left channel should dominate, left={}, right={}",
+        left_energy,
+        right_energy
+    );
 }
 
 #[test]

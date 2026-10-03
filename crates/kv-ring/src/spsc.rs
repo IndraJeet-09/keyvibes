@@ -60,7 +60,10 @@ impl<T: Copy> SpscRing<T> {
         T: Default,
     {
         assert!(capacity > 0, "Capacity must be greater than zero");
-        assert!(capacity.is_power_of_two(), "Capacity must be a power of two");
+        assert!(
+            capacity.is_power_of_two(),
+            "Capacity must be a power of two"
+        );
 
         let buffer: Vec<UnsafeCell<MaybeUninit<T>>> = (0..capacity)
             .map(|_| UnsafeCell::new(MaybeUninit::new(T::default())))
@@ -89,7 +92,10 @@ impl<T: Copy> SpscRing<T> {
     /// Panics if capacity is not a power of two or is zero.
     pub fn with_capacity(capacity: usize) -> Self {
         assert!(capacity > 0, "Capacity must be greater than zero");
-        assert!(capacity.is_power_of_two(), "Capacity must be a power of two");
+        assert!(
+            capacity.is_power_of_two(),
+            "Capacity must be a power of two"
+        );
 
         let buffer: Vec<UnsafeCell<MaybeUninit<T>>> = (0..capacity)
             .map(|_| UnsafeCell::new(MaybeUninit::uninit()))

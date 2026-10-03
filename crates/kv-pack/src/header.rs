@@ -43,7 +43,7 @@ impl Header {
         }
 
         // Check magic
-        if &data[0..8] != &MAGIC {
+        if data[0..8] != MAGIC {
             return Err(PackError::InvalidMagic);
         }
 
@@ -52,37 +52,31 @@ impl Header {
         let flags = u16::from_le_bytes([data[10], data[11]]);
         let header_size = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
         let file_size_claimed = u64::from_le_bytes([
-            data[16], data[17], data[18], data[19],
-            data[20], data[21], data[22], data[23],
+            data[16], data[17], data[18], data[19], data[20], data[21], data[22], data[23],
         ]);
         let key_count = u32::from_le_bytes([data[24], data[25], data[26], data[27]]);
         let clip_count = u32::from_le_bytes([data[28], data[29], data[30], data[31]]);
 
         let metadata_offset = u64::from_le_bytes([
-            data[32], data[33], data[34], data[35],
-            data[36], data[37], data[38], data[39],
+            data[32], data[33], data[34], data[35], data[36], data[37], data[38], data[39],
         ]);
         let metadata_size = u32::from_le_bytes([data[40], data[41], data[42], data[43]]);
 
         let key_table_offset = u64::from_le_bytes([
-            data[44], data[45], data[46], data[47],
-            data[48], data[49], data[50], data[51],
+            data[44], data[45], data[46], data[47], data[48], data[49], data[50], data[51],
         ]);
         let key_table_size = u32::from_le_bytes([data[52], data[53], data[54], data[55]]);
 
         let clip_table_offset = u64::from_le_bytes([
-            data[56], data[57], data[58], data[59],
-            data[60], data[61], data[62], data[63],
+            data[56], data[57], data[58], data[59], data[60], data[61], data[62], data[63],
         ]);
         let clip_table_size = u32::from_le_bytes([data[64], data[65], data[66], data[67]]);
 
         let sample_data_offset = u64::from_le_bytes([
-            data[68], data[69], data[70], data[71],
-            data[72], data[73], data[74], data[75],
+            data[68], data[69], data[70], data[71], data[72], data[73], data[74], data[75],
         ]);
         let sample_data_size = u64::from_le_bytes([
-            data[76], data[77], data[78], data[79],
-            data[80], data[81], data[82], data[83],
+            data[76], data[77], data[78], data[79], data[80], data[81], data[82], data[83],
         ]);
 
         let sample_rate = u32::from_le_bytes([data[84], data[85], data[86], data[87]]);
@@ -90,7 +84,7 @@ impl Header {
         let sample_format = u16::from_le_bytes([data[90], data[91]]);
 
         // Check reserved bytes are zero
-        for (_i, &byte) in data[92..120].iter().enumerate() {
+        for &byte in data[92..120].iter() {
             if byte != 0 {
                 return Err(PackError::ReservedNotZero("reserved"));
             }
@@ -124,7 +118,10 @@ impl Header {
 
         // Validate metadata
         if metadata_size > MAX_METADATA_SIZE {
-            return Err(PackError::InvalidMetadataSize(metadata_size, MAX_METADATA_SIZE));
+            return Err(PackError::InvalidMetadataSize(
+                metadata_size,
+                MAX_METADATA_SIZE,
+            ));
         }
 
         // Validate table sizes
@@ -149,7 +146,7 @@ impl Header {
         }
 
         // Validate sample rate
-        if sample_rate < MIN_SAMPLE_RATE || sample_rate > MAX_SAMPLE_RATE {
+        if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&sample_rate) {
             return Err(PackError::InvalidSampleRate(
                 sample_rate,
                 MIN_SAMPLE_RATE,
@@ -183,12 +180,7 @@ impl Header {
         Self::validate_offset("sample_data_offset", sample_data_offset, file_size)?;
 
         // Validate offset + size combinations
-        Self::validate_region(
-            "metadata",
-            metadata_offset,
-            metadata_size as u64,
-            file_size,
-        )?;
+        Self::validate_region("metadata", metadata_offset, metadata_size as u64, file_size)?;
         Self::validate_region(
             "key_table",
             key_table_offset,

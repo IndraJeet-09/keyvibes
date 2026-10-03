@@ -152,7 +152,7 @@ impl PhysicalKey {
     pub fn from_u16(value: u16) -> Option<Self> {
         if (value as usize) < Self::COUNT {
             // SAFETY: We've verified the value is within the valid range
-            Some(unsafe { std::mem::transmute(value) })
+            Some(unsafe { std::mem::transmute::<u16, PhysicalKey>(value) })
         } else {
             None
         }

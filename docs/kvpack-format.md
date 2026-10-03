@@ -32,8 +32,8 @@ KVPack (`.kvpack`) is a binary sound pack format for KeyVibes. It provides:
 ┌─────────────────────────────────┐  Offset 0
 │ Magic (8 bytes)                 │  "KVPACK\0\0"
 ├─────────────────────────────────┤  8
-│ Header (64 bytes)               │  Version, offsets, sizes
-├─────────────────────────────────┤  72
+│ Header fields (112 bytes)       │  Version, offsets, sizes
+├─────────────────────────────────┤  120
 │ Metadata (variable)             │  Name, author, license
 ├─────────────────────────────────┤  metadata_offset
 │ Key Table (variable)            │  PhysicalKey → variants
@@ -60,7 +60,7 @@ Value:  0x4B 0x56 0x50 0x41 0x43 0x4B 0x00 0x00
 
 All KVPack files must start with this exact sequence.
 
-## Header (72 bytes)
+## Header (120 bytes)
 
 All integers are **little-endian**.
 
@@ -70,7 +70,7 @@ Offset  Size  Type   Field                Description
 0       8     u8[8]  magic                Magic: "KVPACK\0\0"
 8       2     u16    format_version       Format version (1)
 10      2     u16    flags                Reserved flags (0)
-12      4     u32    header_size          Header size (72)
+12      4     u32    header_size          Header size (120)
 16      8     u64    file_size            Total file size in bytes
 24      4     u32    key_count            Number of keys with sounds
 28      4     u32    clip_count           Total number of clips (variants)
@@ -92,7 +92,7 @@ Offset  Size  Type   Field                Description
 
 - `format_version`: Must be `1` for this specification
 - `flags`: Must be `0` (reserved for future use)
-- `header_size`: Must be `72`
+- `header_size`: Must be `120`
 - `file_size`: Must match actual file size
 - `key_count`: Must be ≤ 104 (PhysicalKey::COUNT)
 - `clip_count`: Must be ≤ 10,000 (MAX_CLIPS)
@@ -109,7 +109,7 @@ Offset  Size  Type   Field                Description
 
 All offsets must satisfy:
 ```
-offset ≥ 72 (after header)
+offset ≥ 120 (after header)
 offset ≤ file_size
 offset + size ≤ file_size (with overflow check)
 ```
@@ -344,7 +344,7 @@ Loaders must:
 ## Example Pack Structure
 
 ```
-Header (72 bytes)
+Header (120 bytes)
   magic: "KVPACK\0\0"
   format_version: 1
   key_count: 3

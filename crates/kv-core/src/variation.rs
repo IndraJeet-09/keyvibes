@@ -35,7 +35,6 @@ impl PitchVariation {
     /// Returns a ratio in the range [2^(-cents/1200), 2^(cents/1200)].
     #[inline]
     pub fn random_ratio(&self, rng: &mut impl rand_core::RngCore) -> f32 {
-
         // Generate random cents in [-cents, +cents]
         let random_u32 = rng.next_u32();
         let random_f32 = (random_u32 as f32) / (u32::MAX as f32); // [0, 1]
@@ -83,7 +82,6 @@ impl GainVariation {
     /// Returns a gain in the range [10^(-dB/20), 10^(dB/20)].
     #[inline]
     pub fn random_gain(&self, rng: &mut impl rand_core::RngCore) -> f32 {
-
         // Generate random dB in [-db, +db]
         let random_u32 = rng.next_u32();
         let random_f32 = (random_u32 as f32) / (u32::MAX as f32); // [0, 1]
@@ -100,17 +98,43 @@ impl Default for GainVariation {
 }
 
 /// Combined variation parameters.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct VariationParams {
     pub pitch: PitchVariation,
     pub gain: GainVariation,
 }
 
-impl Default for VariationParams {
-    fn default() -> Self {
-        Self {
-            pitch: PitchVariation::default(),
-            gain: GainVariation::default(),
+/// Variant selection state per key.
+///
+/// Each input thread owns one array of `[VariantState; PhysicalKey::COUNT]`
+/// and mutates the entry for a key only when that key is pressed, so variant
+/// rotation stays lock-free and allocation-free on the input path.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct VariantState {
+    /// Last selected variant (used for repeat avoidance).
+    pub last_variant: u16,
+    /// Counter for deterministic rotation.
+    pub rotation: u8,
+}
+
+impl VariantState {
+    /// Selects a variant for the given number of available variants.
+    ///
+    /// Uses deterministic rotation to avoid immediate repeats. This is
+    /// lock-free and allocation-free.
+    pub fn select(&mut self, count: u16) -> u16 {
+        let count = count.max(1);
+        let selected = (self.rotation as u16) % count.max(1);
+        // Update state
+        self.rotation = self.rotation.wrapping_add(1);
+        // Avoid same variant twice in sequence for multi-variant keys
+        if count > 1 && selected == self.last_variant {
+            let next_variant = (self.last_variant + 1) % count;
+            self.last_variant = next_variant;
+            next_variant
+        } else {
+            self.last_variant = selected;
+            selected
         }
     }
 }
@@ -172,5 +196,40 @@ mod tests {
             let max_ratio = PitchVariation::cents_to_ratio(35.0);
             assert!(ratio >= min_ratio && ratio <= max_ratio);
         }
+    }
+
+    #[test]
+    fn test_variant_state_single_variant() {
+        let mut state = VariantState::default();
+        for _ in 0..4 {
+            assert_eq!(state.select(1), 0);
+        }
+    }
+
+    #[test]
+    fn test_variant_state_rotates() {
+        let mut state = VariantState::default();
+        let first = state.select(3);
+        let second = state.select(3);
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn test_variant_state_avoids_immediate_repeat() {
+        let mut state = VariantState::default();
+        let mut previous = state.select(4);
+
+        // Repeated presses must never select the same variant twice in a row.
+        for _ in 0..64 {
+            let next = state.select(4);
+            assert_ne!(next, previous, "variant repeated twice in a row");
+            previous = next;
+        }
+    }
+
+    #[test]
+    fn test_variant_state_zero_count_treated_as_one() {
+        let mut state = VariantState::default();
+        assert_eq!(state.select(0), 0);
     }
 }

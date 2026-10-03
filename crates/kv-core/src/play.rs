@@ -3,6 +3,7 @@
 //! These types flow from the input thread to the audio engine via a lock-free queue.
 
 use crate::physical_key::PhysicalKey;
+use crate::variation::VariantState;
 
 /// Key event kind: press or release.
 #[repr(u8)]
@@ -120,6 +121,22 @@ impl PlayCommand {
     }
 }
 
+/// Produces play commands for key presses.
+///
+/// Implemented by the pack player: given a key and the caller-owned variant
+/// state for that key, it returns the command to enqueue for the mixer.
+/// Returning `None` means the key has no sound in the loaded pack.
+///
+/// # Real-time safety
+///
+/// `play` runs on the input thread and later the command is consumed on the
+/// audio thread. Implementations must not allocate, lock, or perform I/O:
+/// lookup is a binary search over immutable, already-validated pack data.
+pub trait SoundSource {
+    /// Builds the command for `key`, or `None` if the key has no sound.
+    fn play(&self, key: PhysicalKey, state: &mut VariantState) -> Option<PlayCommand>;
+}
+
 impl std::fmt::Debug for PlayCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PlayCommand")
@@ -147,17 +164,8 @@ mod tests {
     #[test]
     fn test_play_command_is_copy() {
         let dummy = [0i16; 4];
-        let cmd = unsafe {
-            PlayCommand::new(
-                dummy.as_ptr(),
-                4,
-                48000,
-                1u64 << 32,
-                1.0,
-                1.0,
-                false,
-            )
-        };
+        let cmd =
+            unsafe { PlayCommand::new(dummy.as_ptr(), 4, 48000, 1u64 << 32, 1.0, 1.0, false) };
         let _cmd2 = cmd; // Copy
         let _cmd3 = cmd; // Can copy again
     }

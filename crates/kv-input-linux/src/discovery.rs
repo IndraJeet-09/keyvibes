@@ -4,7 +4,7 @@
 //! based on their capabilities, not their event number.
 
 use crate::error::InputError;
-use evdev::{Device, EventType, Key};
+use evdev::{Device, EventType, KeyCode as Key};
 use std::path::PathBuf;
 
 /// Information about a discovered keyboard device.
@@ -58,19 +58,53 @@ pub fn is_keyboard(device: &Device) -> bool {
 
     // Check for standard keyboard keys
     let standard_keys = [
-        Key::KEY_A, Key::KEY_B, Key::KEY_C, Key::KEY_D, Key::KEY_E,
-        Key::KEY_F, Key::KEY_G, Key::KEY_H, Key::KEY_I, Key::KEY_J,
-        Key::KEY_K, Key::KEY_L, Key::KEY_M, Key::KEY_N, Key::KEY_O,
-        Key::KEY_P, Key::KEY_Q, Key::KEY_R, Key::KEY_S, Key::KEY_T,
-        Key::KEY_U, Key::KEY_V, Key::KEY_W, Key::KEY_X, Key::KEY_Y,
+        Key::KEY_A,
+        Key::KEY_B,
+        Key::KEY_C,
+        Key::KEY_D,
+        Key::KEY_E,
+        Key::KEY_F,
+        Key::KEY_G,
+        Key::KEY_H,
+        Key::KEY_I,
+        Key::KEY_J,
+        Key::KEY_K,
+        Key::KEY_L,
+        Key::KEY_M,
+        Key::KEY_N,
+        Key::KEY_O,
+        Key::KEY_P,
+        Key::KEY_Q,
+        Key::KEY_R,
+        Key::KEY_S,
+        Key::KEY_T,
+        Key::KEY_U,
+        Key::KEY_V,
+        Key::KEY_W,
+        Key::KEY_X,
+        Key::KEY_Y,
         Key::KEY_Z,
-        Key::KEY_1, Key::KEY_2, Key::KEY_3, Key::KEY_4, Key::KEY_5,
-        Key::KEY_6, Key::KEY_7, Key::KEY_8, Key::KEY_9, Key::KEY_0,
-        Key::KEY_ENTER, Key::KEY_SPACE, Key::KEY_BACKSPACE,
-        Key::KEY_TAB, Key::KEY_ESC,
-        Key::KEY_LEFTSHIFT, Key::KEY_RIGHTSHIFT,
-        Key::KEY_LEFTCTRL, Key::KEY_RIGHTCTRL,
-        Key::KEY_LEFTALT, Key::KEY_RIGHTALT,
+        Key::KEY_1,
+        Key::KEY_2,
+        Key::KEY_3,
+        Key::KEY_4,
+        Key::KEY_5,
+        Key::KEY_6,
+        Key::KEY_7,
+        Key::KEY_8,
+        Key::KEY_9,
+        Key::KEY_0,
+        Key::KEY_ENTER,
+        Key::KEY_SPACE,
+        Key::KEY_BACKSPACE,
+        Key::KEY_TAB,
+        Key::KEY_ESC,
+        Key::KEY_LEFTSHIFT,
+        Key::KEY_RIGHTSHIFT,
+        Key::KEY_LEFTCTRL,
+        Key::KEY_RIGHTCTRL,
+        Key::KEY_LEFTALT,
+        Key::KEY_RIGHTALT,
     ];
 
     for key in &standard_keys {
@@ -89,8 +123,11 @@ pub fn is_keyboard(device: &Device) -> bool {
     // Reject if device has mouse buttons as primary input
     // (some keyboards have mouse buttons, but they also have many letter keys)
     let mouse_button_count = [
-        Key::BTN_LEFT, Key::BTN_RIGHT, Key::BTN_MIDDLE,
-        Key::BTN_SIDE, Key::BTN_EXTRA,
+        Key::BTN_LEFT,
+        Key::BTN_RIGHT,
+        Key::BTN_MIDDLE,
+        Key::BTN_SIDE,
+        Key::BTN_EXTRA,
     ]
     .iter()
     .filter(|btn| keys.contains(**btn))

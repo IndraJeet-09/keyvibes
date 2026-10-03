@@ -14,27 +14,42 @@
 //! - No I/O during playback
 //! - Immutable after validation
 
+pub mod error;
 pub mod format;
 pub mod header;
-pub mod error;
-pub mod parser;
-pub mod validator;
 pub mod loader;
 pub mod lookup;
+pub mod parser;
 pub mod playback;
+pub mod validator;
 
 #[cfg(feature = "builder")]
 pub mod builder;
+#[cfg(feature = "builder")]
+pub mod layout;
+#[cfg(feature = "builder")]
+pub mod manifest;
+#[cfg(feature = "builder")]
+pub mod wav;
+#[cfg(feature = "builder")]
+pub mod writer;
 
 pub use error::PackError;
-pub use format::{MAGIC, FORMAT_VERSION, HEADER_SIZE};
+pub use format::{FORMAT_VERSION, HEADER_SIZE, MAGIC};
 pub use header::Header;
 pub use loader::{KvPack, PackStats};
-pub use lookup::{KeySounds, ClipInfo, VariantState};
+pub use lookup::{ClipInfo, KeySounds, VariantState};
 pub use playback::PlayCommand;
+
+#[cfg(feature = "builder")]
+pub use builder::{build_from_manifest, BuildEvent, BuildReport, ClipData, PackBuilder};
+#[cfg(feature = "builder")]
+pub use manifest::PackManifest;
+#[cfg(feature = "builder")]
+pub use writer::{PackPlan, WriteStage};
 
 // Re-export limits
 pub use format::{
-    MAX_KEYS, MAX_CLIPS, MAX_VARIANTS_PER_KEY, MAX_CLIP_FRAMES,
-    MAX_METADATA_SIZE, MAX_STRING_SIZE, MAX_PACK_SIZE,
+    MAX_CLIPS, MAX_CLIP_FRAMES, MAX_KEYS, MAX_METADATA_SIZE, MAX_PACK_SIZE, MAX_STRING_SIZE,
+    MAX_VARIANTS_PER_KEY,
 };

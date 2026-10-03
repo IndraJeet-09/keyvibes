@@ -60,9 +60,10 @@ mod tests {
 
     #[test]
     fn test_perceptual_gain() {
-        let mut settings = Settings::default();
-
-        settings.volume = 1.0;
+        let mut settings = Settings {
+            volume: 1.0,
+            ..Default::default()
+        };
         assert!((settings.perceptual_gain() - 1.0).abs() < 0.001);
 
         settings.volume = 0.5;

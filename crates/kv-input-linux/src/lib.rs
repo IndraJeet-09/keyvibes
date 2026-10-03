@@ -6,13 +6,13 @@
 
 pub mod backend;
 pub mod device;
+pub mod diagnostics;
 pub mod discovery;
+pub mod error;
 pub mod events;
 pub mod hotplug;
 pub mod mapping;
-pub mod error;
-pub mod diagnostics;
 
 pub use backend::LinuxInputBackend;
-pub use error::InputError;
 pub use diagnostics::InputStats;
+pub use error::InputError;

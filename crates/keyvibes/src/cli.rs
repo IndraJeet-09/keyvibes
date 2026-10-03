@@ -1,16 +1,18 @@
 //! Command-line interface.
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "keyvibes")]
 #[command(about = "Linux native low-latency keyboard sound engine", long_about = None)]
+#[command(version)]
 pub struct Cli {
     /// Enable verbose logging
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     pub verbose: bool,
 
-    /// Run diagnostics
+    /// Run subsystem diagnostics (PipeWire + keyboard capture)
     #[arg(long)]
     pub diagnostics: bool,
 
@@ -18,23 +20,62 @@ pub struct Cli {
     #[arg(long)]
     pub list_keyboards: bool,
 
-    /// List installed sound packs
-    #[arg(long)]
-    pub list_packs: bool,
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
 
-    /// Run audio test
-    #[arg(long)]
-    pub audio_test: bool,
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Build, validate, and inspect .kvpack sound packs
+    Pack {
+        #[command(subcommand)]
+        action: PackAction,
+    },
 
-    /// Run input test
-    #[arg(long)]
-    pub input_test: bool,
+    /// Load a pack and play keyboard sounds
+    Run {
+        /// Path to the .kvpack file
+        #[arg(long)]
+        pack: PathBuf,
 
-    /// Run self-test
-    #[arg(long)]
-    pub selftest: bool,
+        /// Audio output sample rate
+        #[arg(long, default_value_t = 48000)]
+        rate: u32,
+    },
 
-    /// Run benchmarks
-    #[arg(long)]
-    pub bench: bool,
+    /// Discover keyboards and capture key presses for a few seconds
+    InputTest {
+        /// Capture duration in seconds
+        #[arg(short = 't', long, default_value_t = 10)]
+        seconds: u64,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PackAction {
+    /// Build a .kvpack from a pack.toml manifest
+    Build {
+        /// Path to pack.toml
+        manifest: PathBuf,
+
+        /// Output .kvpack path
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+
+    /// Validate an existing .kvpack
+    Validate {
+        /// Path to the .kvpack file
+        pack: PathBuf,
+    },
+
+    /// Inspect the header, metadata, keys, and clips of a .kvpack
+    Inspect {
+        /// Path to the .kvpack file
+        pack: PathBuf,
+
+        /// List every clip entry as well
+        #[arg(long)]
+        clips: bool,
+    },
 }

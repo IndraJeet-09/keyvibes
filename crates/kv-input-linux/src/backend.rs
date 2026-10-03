@@ -7,8 +7,8 @@ use crate::diagnostics::InputStats;
 use crate::discovery::discover_keyboards;
 use crate::error::InputError;
 use crate::hotplug::{HotplugEvent, HotplugMonitor};
+use kv_core::{PlayCommand, SoundSource};
 use kv_ring::SpscRing;
-use kv_core::PlayCommand;
 use std::sync::Arc;
 use std::thread;
 
@@ -18,7 +18,7 @@ use std::thread;
 /// - Keyboard discovery (no hardcoded /dev/input/event0)
 /// - Multiple simultaneous keyboards
 /// - Hotplug detection
-/// - Event-to-PlayCommand conversion
+/// - Event-to-PlayCommand conversion via the shared [`SoundSource`]
 pub struct LinuxInputBackend {
     command_queue: Arc<SpscRing<PlayCommand>>,
     stats: Arc<InputStats>,
@@ -33,14 +33,19 @@ impl LinuxInputBackend {
     ///
     /// * `command_queue` - Lock-free queue for PlayCommands
     /// * `stats` - Statistics sink
+    /// * `source` - Shared sound source (pack player) used to build commands
     ///
     /// # Errors
     ///
     /// Returns `InputError` if no keyboards are found or initialization fails.
-    pub fn new(
+    pub fn new<S>(
         command_queue: Arc<SpscRing<PlayCommand>>,
         stats: Arc<InputStats>,
-    ) -> Result<Self, InputError> {
+        source: Arc<S>,
+    ) -> Result<Self, InputError>
+    where
+        S: SoundSource + Send + Sync + 'static,
+    {
         // Discover initial keyboards
         let keyboards = discover_keyboards()?;
 
@@ -54,7 +59,7 @@ impl LinuxInputBackend {
         for keyboard_info in keyboards {
             match KeyboardDevice::open(keyboard_info.path, stats.clone()) {
                 Ok(device) => {
-                    let handle = device.spawn_reader(command_queue.clone());
+                    let handle = device.spawn_reader(command_queue.clone(), source.clone());
                     device_handles.push(handle);
                     stats.increment_device_added();
                 }
@@ -73,7 +78,10 @@ impl LinuxInputBackend {
     }
 
     /// Enables hotplug detection.
-    pub fn enable_hotplug(&mut self) -> Result<(), InputError> {
+    pub fn enable_hotplug<S>(&mut self, source: Arc<S>) -> Result<(), InputError>
+    where
+        S: SoundSource + Send + Sync + 'static,
+    {
         let queue = self.command_queue.clone();
         let stats = self.stats.clone();
 
@@ -86,7 +94,7 @@ impl LinuxInputBackend {
                     eprintln!("Keyboard added: {} ({})", info.name, info.path.display());
                     match KeyboardDevice::open(info.path, stats.clone()) {
                         Ok(device) => {
-                            let _handle = device.spawn_reader(queue.clone());
+                            let _handle = device.spawn_reader(queue.clone(), source.clone());
                             stats.increment_device_added();
                             // Note: Handle is dropped, which stops the thread
                             // In production, we'd track these handles
@@ -107,6 +115,11 @@ impl LinuxInputBackend {
         Ok(())
     }
 
+    /// Number of keyboard reader threads currently tracked.
+    pub fn device_count(&self) -> usize {
+        self.device_handles.len()
+    }
+
     /// Gets statistics snapshot.
     pub fn get_stats(&self) -> crate::diagnostics::InputStatsSnapshot {
         self.stats.snapshot()
@@ -123,16 +136,28 @@ impl Drop for LinuxInputBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kv_core::{PhysicalKey, VariantState};
+
+    /// Sound source that never produces a command (for headless tests).
+    struct SilentSource;
+
+    impl SoundSource for SilentSource {
+        fn play(&self, _key: PhysicalKey, _state: &mut VariantState) -> Option<PlayCommand> {
+            None
+        }
+    }
 
     #[test]
     fn test_backend_creation_no_keyboards() {
         let queue = Arc::new(SpscRing::with_capacity(256));
         let stats = Arc::new(InputStats::new());
+        let source = Arc::new(SilentSource);
 
         // This will fail if no keyboards are present (expected in most test environments)
-        match LinuxInputBackend::new(queue, stats) {
-            Ok(_) => {
+        match LinuxInputBackend::new(queue, stats, source) {
+            Ok(backend) => {
                 // On a system with keyboards, this succeeds
+                assert!(backend.device_count() > 0);
             }
             Err(InputError::NoKeyboardsFound) => {
                 // Expected in test environments

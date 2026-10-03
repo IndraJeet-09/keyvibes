@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 kv-core.workspace = true
+kv-ring.workspace = true
 kv-input-linux.workspace = true
 kv-audio-pipewire.workspace = true
 kv-pack.workspace = true

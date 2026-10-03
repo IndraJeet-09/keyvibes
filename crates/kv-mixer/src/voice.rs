@@ -193,8 +193,10 @@ mod tests {
 
     #[test]
     fn test_voice_position() {
-        let mut voice = Voice::default();
-        voice.position = (1u64 << 32) | (1u64 << 31); // 1.5
+        let voice = Voice {
+            position: (1u64 << 32) | (1u64 << 31), // 1.5
+            ..Default::default()
+        };
 
         let (int_part, frac) = voice.position_parts();
         assert_eq!(int_part, 1);
@@ -203,8 +205,10 @@ mod tests {
 
     #[test]
     fn test_voice_advance() {
-        let mut voice = Voice::default();
-        voice.step = 1u64 << 32; // 1.0
+        let mut voice = Voice {
+            step: 1u64 << 32, // 1.0
+            ..Default::default()
+        };
 
         voice.advance();
         assert_eq!(voice.position, 1u64 << 32);
@@ -215,8 +219,10 @@ mod tests {
 
     #[test]
     fn test_voice_is_finished() {
-        let mut voice = Voice::default();
-        voice.sample_len = 100;
+        let mut voice = Voice {
+            sample_len: 100,
+            ..Default::default()
+        };
 
         voice.position = 99u64 << 32;
         assert!(!voice.is_finished());

@@ -7,14 +7,14 @@
 //! - Geometry
 //! - Settings
 
+pub mod geometry;
 pub mod physical_key;
 pub mod play;
-pub mod variation;
-pub mod geometry;
 pub mod settings;
+pub mod variation;
 
-pub use physical_key::PhysicalKey;
-pub use play::{PlayCommand, KeyEvent, KeyEventKind};
-pub use variation::{VariationParams, PitchVariation, GainVariation};
 pub use geometry::KeyGeometry;
+pub use physical_key::PhysicalKey;
+pub use play::{KeyEvent, KeyEventKind, PlayCommand, SoundSource};
 pub use settings::Settings;
+pub use variation::{GainVariation, PitchVariation, VariantState, VariationParams};

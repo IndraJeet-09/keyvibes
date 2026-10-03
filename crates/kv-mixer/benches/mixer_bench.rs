@@ -1,16 +1,15 @@
 //! Simple benchmarks for the mixer.
 
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use kv_core::PlayCommand;
 use kv_mixer::Mixer;
 use kv_ring::SpscRing;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 /// Generate a simple click for testing.
 fn generate_click() -> Vec<i16> {
     vec![
-        0, 0,           // guard samples
-        16000, 8000, -8000, -4000, 2000, -1000, 500, -250, 0,
-        0, 0, 0,        // guard samples
+        0, 0, // guard samples
+        16000, 8000, -8000, -4000, 2000, -1000, 500, -250, 0, 0, 0, 0, // guard samples
     ]
 }
 
@@ -19,7 +18,7 @@ fn bench_mixer_render(c: &mut Criterion) {
     let mut mixer = Mixer::new(48000);
 
     // Pre-trigger some voices
-    for i in 0..8 {
+    for _ in 0..8 {
         let cmd = unsafe {
             PlayCommand::new(
                 samples[2..].as_ptr(),
@@ -74,7 +73,7 @@ fn bench_mixer_render(c: &mut Criterion) {
 
 fn bench_queue_operations(c: &mut Criterion) {
     let samples = generate_click();
-    let mut queue: SpscRing<PlayCommand> = SpscRing::with_capacity(256);
+    let queue: SpscRing<PlayCommand> = SpscRing::with_capacity(256);
 
     // Fill queue halfway
     for _ in 0..128 {

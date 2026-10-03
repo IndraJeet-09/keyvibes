@@ -4,8 +4,8 @@ use crate::error::{PackError, PackResult};
 use crate::format::*;
 use crate::header::Header;
 use crate::parser::{self, KeyEntry};
-use crate::validator;
 use crate::playback::PlayCommand;
+use crate::validator;
 use memmap2::Mmap;
 use std::fs::File;
 use std::path::Path;
@@ -28,6 +28,8 @@ pub struct KvPack {
     keys: Vec<KeyEntry>,
     /// Parsed clip entries
     clips: Vec<parser::ClipEntry>,
+    /// Parsed metadata (eagerly decoded at open time)
+    metadata: crate::parser::Metadata,
     /// Sample data region (slice into mmap)
     samples: &'static [i16], // Valid for lifetime of mmap
 }
@@ -67,19 +69,28 @@ impl KvPack {
         let header = Header::parse(&mmap[..], file_size)?;
 
         // Extract key table
-        let key_data = &mmap
-            [header.key_table_offset as usize
-                ..(header.key_table_offset as usize + header.key_table_size as usize)];
+        let key_data = &mmap[header.key_table_offset as usize
+            ..(header.key_table_offset as usize + header.key_table_size as usize)];
         let keys = parser::parse_key_table(key_data, header.key_count)?;
 
         // Extract clip table
-        let clip_data = &mmap
-            [header.clip_table_offset as usize
-                ..(header.clip_table_offset as usize + header.clip_table_size as usize)];
+        let clip_data = &mmap[header.clip_table_offset as usize
+            ..(header.clip_table_offset as usize + header.clip_table_size as usize)];
         let clips = parser::parse_clip_table(clip_data, header.clip_count)?;
 
         // Full validation of relationships
         validator::validate_full(&header, &keys, &clips)?;
+
+        // Decode metadata eagerly: a corrupt metadata section must fail at
+        // open time, not on the first `metadata()` call, and the hot path
+        // never re-parses strings.
+        let metadata = if header.metadata_size == 0 {
+            crate::parser::Metadata::default()
+        } else {
+            let metadata_bytes = &mmap[header.metadata_offset as usize
+                ..(header.metadata_offset as usize + header.metadata_size as usize)];
+            parser::parse_metadata(metadata_bytes, header.metadata_size)?
+        };
 
         // Create sample slice (zero-copy into mmap)
         let sample_offset = header.sample_data_offset as usize;
@@ -107,20 +118,14 @@ impl KvPack {
             header,
             keys,
             clips,
+            metadata,
             samples,
         })
     }
 
-    /// Gets the pack metadata.
-    pub fn metadata(&self) -> crate::parser::Metadata {
-        if self.header.metadata_size == 0 {
-            return crate::parser::Metadata::default();
-        }
-        let metadata_bytes = &self.mmap
-            [self.header.metadata_offset as usize
-                ..(self.header.metadata_offset as usize + self.header.metadata_size as usize)];
-        crate::parser::parse_metadata(metadata_bytes, self.header.metadata_size)
-            .unwrap_or_default()
+    /// Gets the pack metadata (parsed once at open time).
+    pub fn metadata(&self) -> &crate::parser::Metadata {
+        &self.metadata
     }
 
     /// Looks up sounds by binary search (key table sorted by physical_key ID).
@@ -159,10 +164,9 @@ impl KvPack {
 
         // Calculate byte offset into sample region
         let byte_offset = clip.sample_offset as usize;
-        let byte_length = (clip.stored_frames as usize)
-            * std::mem::size_of::<i16>();
+        let byte_length = (clip.stored_frames as usize) * std::mem::size_of::<i16>();
 
-        if byte_offset + byte_length > self.samples.len() * std::mem::size_of::<i16>() {
+        if byte_offset + byte_length > std::mem::size_of_val(self.samples) {
             return None;
         }
 
@@ -173,11 +177,12 @@ impl KvPack {
     /// Gets statistics.
     pub fn stats(&self) -> PackStats {
         PackStats {
-            name: self.metadata().name.clone(),
+            name: self.metadata.name.clone(),
             keys: self.header.key_count,
             clips: self.header.clip_count,
             sample_rate: self.header.sample_rate,
             channels: self.header.channels,
+            sample_frames: self.clips.iter().map(|c| c.sample_frames as u64).sum(),
             mapped_size: self.mmap.len(),
         }
     }
@@ -191,6 +196,8 @@ pub struct PackStats {
     pub clips: u32,
     pub sample_rate: u32,
     pub channels: u16,
+    /// Total logical frames across all clips (guards excluded).
+    pub sample_frames: u64,
     pub mapped_size: usize,
 }
 
@@ -200,48 +207,70 @@ impl KvPack {
         &self.header
     }
 
+    /// Parsed key table entries, sorted by physical key ID.
+    pub fn keys(&self) -> &[KeyEntry] {
+        &self.keys
+    }
+
+    /// Parsed clip table entries in clip-table order.
+    pub fn clips(&self) -> &[parser::ClipEntry] {
+        &self.clips
+    }
+
     /// Creates a PlayCommand for a key press with variant selection.
     ///
-    /// # Safety
+    /// Returns `None` when the pack has no sound for `key`, when the clip is
+    /// degenerate, or when `output_rate` is zero.
     ///
-    /// The returned command references sample data inside this pack.
-    /// The caller must ensure this pack stays alive for the voice lifetime.
+    /// # RT safety
+    ///
+    /// Binary search plus slice indexing only: no allocation, no locks, no I/O.
+    /// The returned command points into this pack's memory mapping, so the
+    /// pack must outlive every voice built from it.
     pub fn play_command(
         &self,
         key: kv_core::PhysicalKey,
         variant_state: &mut crate::lookup::VariantState,
+        output_rate: u32,
         left_gain: f32,
         right_gain: f32,
     ) -> Option<PlayCommand> {
+        if output_rate == 0 {
+            return None;
+        }
+
         let sounds = self.lookup(key)?;
         let selected_variant = variant_state.select(sounds.variant_count);
         let clip_idx = sounds.first_clip + selected_variant as u32;
         let clip_slice = self.get_clip(clip_idx)?;
 
-        // clip_slice includes guard samples; get_clip returns stored_frames worth of i16 samples.
-        // Guard samples: first GUARD_BEFORE samples, last GUARD_AFTER samples.
-        // Logical frames start at index GUARD_BEFORE.
-        let logical_frames = clip_slice.len().saturating_sub((GUARD_BEFORE + GUARD_AFTER) as usize);
+        // clip_slice includes guard samples; logical frames start after
+        // GUARD_BEFORE samples.
+        let logical_frames = clip_slice
+            .len()
+            .saturating_sub((GUARD_BEFORE + GUARD_AFTER) as usize);
         if logical_frames == 0 {
             return None;
         }
 
-        // Create command pointer (points to start of logical frames, which is after GUARD_BEFORE)
+        // Point at the start of the logical frames (after the leading guards).
         let ptr = unsafe { clip_slice.as_ptr().add(GUARD_BEFORE as usize) };
 
-        // Calculate pitch step for sample rate conversion
+        // Fixed-point pitch step: source_rate / output_rate in 32.32.
         let source_rate = self.header.sample_rate;
-        let output_rate = 48000; // Mixer output rate
         let step = ((source_rate as u64) << 32) / (output_rate as u64);
+        if step == 0 {
+            return None;
+        }
 
         Some(PlayCommand {
             sample_ptr: ptr,
-            frame_count: logical_frames as u32,
-            sample_rate: source_rate,
+            sample_len: logical_frames as u32,
+            source_rate,
             pitch_step: step,
             left_gain,
             right_gain,
-            looping: false,
+            release: false,
         })
     }
 }

@@ -64,6 +64,11 @@ impl Mixer {
         self.current_gain
     }
 
+    /// Returns the output sample rate this mixer renders for.
+    pub fn output_rate(&self) -> u32 {
+        self.output_rate
+    }
+
     /// Returns the number of currently active voices.
     pub fn active_voice_count(&self) -> usize {
         self.voices.iter().filter(|v| v.active).count()
@@ -136,7 +141,10 @@ impl Mixer {
     ///
     /// All active voices must have valid sample pointers.
     pub unsafe fn render_block(&mut self, output: &mut [f32]) {
-        assert!(output.len() % 2 == 0, "Output buffer must be stereo interleaved");
+        assert!(
+            output.len() % 2 == 0,
+            "Output buffer must be stereo interleaved"
+        );
 
         let frame_count = output.len() / 2;
 
@@ -266,17 +274,8 @@ mod tests {
         mixer.target_gain = 1.0;
 
         let samples = [16000i16; 10];
-        let cmd = unsafe {
-            PlayCommand::new(
-                samples.as_ptr(),
-                8,
-                48000,
-                1u64 << 32,
-                1.0,
-                1.0,
-                false,
-            )
-        };
+        let cmd =
+            unsafe { PlayCommand::new(samples.as_ptr(), 8, 48000, 1u64 << 32, 1.0, 1.0, false) };
 
         mixer.trigger(cmd);
 

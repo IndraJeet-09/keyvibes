@@ -180,8 +180,7 @@ impl KeyGeometry {
         let normalized = (self.x - 7.25) / 7.75;
 
         // Clamp and scale
-        let pan = normalized.clamp(-1.0, 1.0) * 0.4;
-        pan
+        normalized.clamp(-1.0, 1.0) * 0.4
     }
 
     /// Converts pan to stereo gains using equal-power panning.
@@ -209,7 +208,11 @@ mod tests {
     fn test_center_keys_near_center() {
         let space = KeyGeometry::default_position(PhysicalKey::Space);
         let pan = space.calculate_pan();
-        assert!(pan.abs() < 0.1, "Space bar should be near center, got pan={}", pan);
+        assert!(
+            pan.abs() < 0.1,
+            "Space bar should be near center, got pan={}",
+            pan
+        );
     }
 
     #[test]

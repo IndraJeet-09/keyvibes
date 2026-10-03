@@ -4,9 +4,10 @@
 //! for the PipeWire stream. All lifecycle operations occur on the control
 //! thread (not the real-time audio thread).
 
-use crate::stream::{PipeWireStream, AudioError};
+use crate::stream::AudioError;
 
 /// Manages stream lifecycle and diagnostics.
+#[derive(Default)]
 pub struct LifecycleManager {
     /// Reference to the stream.
     stream_ref: Option<crate::stream::PipeWireStream>,
@@ -60,5 +61,15 @@ impl LifecycleManager {
     /// Checks if the stream is healthy.
     pub fn is_healthy(&self) -> bool {
         self.connected && self.retry_count < 10
+    }
+
+    /// The managed stream, once connected.
+    pub fn stream(&self) -> Option<&crate::stream::PipeWireStream> {
+        self.stream_ref.as_ref()
+    }
+
+    /// Number of reconnection attempts made so far.
+    pub fn retry_count(&self) -> u32 {
+        self.retry_count
     }
 }

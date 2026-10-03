@@ -26,34 +26,30 @@ pub struct ClipInfo {
 
 /// Variant selection state per key.
 ///
-/// This is a compact, fixed-size state for tracking recent selections
-/// without allocating in the RT path.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct VariantState {
-    /// Last selected variant (used for repeat avoidance).
-    pub last_variant: u16,
-    /// Counter for deterministic rotation.
-    pub rotation: u8,
-}
+/// Re-exported from [`kv_core::VariantState`] so that the pack, the input
+/// threads, and the runtime all share one type. Input threads own an array of
+/// `[VariantState; PhysicalKey::COUNT]`.
+pub use kv_core::VariantState;
 
-impl VariantState {
-    /// Selects a variant for the given number of available variants.
-    ///
-    /// Uses deterministic rotation to avoid immediate repeats.
-    /// This is lock-free and allocation-free.
-    pub fn select(&mut self, count: u16) -> u16 {
-        let count = count.max(1);
-        let selected = ((self.rotation as u16) % count.max(1)) as u16;
-        // Update state
-        self.rotation = self.rotation.wrapping_add(1);
-        // Avoid same variant twice in sequence for multi-variant keys
-        if count > 1 && selected == self.last_variant {
-            let next_variant = (self.last_variant as u16 + 1) % count as u16;
-            self.last_variant = next_variant;
-            next_variant
-        } else {
-            self.last_variant = selected;
-            selected
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_key_sounds_is_copy() {
+        let sounds = KeySounds {
+            key: PhysicalKey::A,
+            first_clip: 0,
+            variant_count: 2,
+        };
+        let copy = sounds;
+        assert_eq!(copy.key, PhysicalKey::A);
+    }
+
+    #[test]
+    fn test_variant_state_is_reexported() {
+        let mut state = VariantState::default();
+        assert_eq!(state.select(2), 1);
+        assert_eq!(state.select(2), 0);
     }
 }

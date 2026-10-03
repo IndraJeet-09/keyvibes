@@ -44,12 +44,8 @@ pub fn parse_key_table(data: &[u8], key_count: u32) -> PackResult<Vec<KeyEntry>>
 
         let physical_key_id = u16::from_le_bytes([entry_data[0], entry_data[1]]);
         let variant_count = u16::from_le_bytes([entry_data[2], entry_data[3]]);
-        let first_clip = u32::from_le_bytes([
-            entry_data[4],
-            entry_data[5],
-            entry_data[6],
-            entry_data[7],
-        ]);
+        let first_clip =
+            u32::from_le_bytes([entry_data[4], entry_data[5], entry_data[6], entry_data[7]]);
 
         // Validate physical key ID
         let physical_key = PhysicalKey::from_u16(physical_key_id).ok_or(
@@ -113,12 +109,8 @@ pub fn parse_clip_table(data: &[u8], clip_count: u32) -> PackResult<Vec<ClipEntr
             entry_data[7],
         ]);
 
-        let sample_frames = u32::from_le_bytes([
-            entry_data[8],
-            entry_data[9],
-            entry_data[10],
-            entry_data[11],
-        ]);
+        let sample_frames =
+            u32::from_le_bytes([entry_data[8], entry_data[9], entry_data[10], entry_data[11]]);
 
         let guard_before = u32::from_le_bytes([
             entry_data[12],
@@ -193,24 +185,13 @@ pub fn parse_clip_table(data: &[u8], clip_count: u32) -> PackResult<Vec<ClipEntr
 }
 
 /// Parses metadata strings.
+#[derive(Default)]
 pub struct Metadata {
     pub name: String,
     pub author: String,
     pub description: String,
     pub license: String,
     pub source: String,
-}
-
-impl Default for Metadata {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            author: String::new(),
-            description: String::new(),
-            license: String::new(),
-            source: String::new(),
-        }
-    }
 }
 
 pub fn parse_metadata(data: &[u8], metadata_size: u32) -> PackResult<Metadata> {

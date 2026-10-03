@@ -30,10 +30,7 @@ pub enum PackError {
     },
 
     #[error("Invalid length: {field} = {length}")]
-    InvalidLength {
-        field: &'static str,
-        length: u64,
-    },
+    InvalidLength { field: &'static str, length: u64 },
 
     #[error("Invalid alignment: {field} = {offset}, must be aligned to {alignment}")]
     InvalidAlignment {
@@ -54,7 +51,9 @@ pub enum PackError {
     #[error("Invalid variant count: key {key} has {count} variants (max {max})")]
     InvalidVariantCount { key: u16, count: u16, max: u16 },
 
-    #[error("Invalid clip index: key {key} first_clip {first_clip} exceeds clip_count {clip_count}")]
+    #[error(
+        "Invalid clip index: key {key} first_clip {first_clip} exceeds clip_count {clip_count}"
+    )]
     InvalidClipIndex {
         key: u16,
         first_clip: u32,
@@ -95,11 +94,7 @@ pub enum PackError {
     },
 
     #[error("Clip sample offset out of bounds: clip {clip} offset {offset} exceeds sample region size {size}")]
-    ClipOffsetOutOfBounds {
-        clip: u32,
-        offset: u64,
-        size: u64,
-    },
+    ClipOffsetOutOfBounds { clip: u32, offset: u64, size: u64 },
 
     #[error("Clip sample length exceeds region: clip {clip} offset {offset} + length {length} exceeds sample region size {size}")]
     ClipLengthExceeds {
@@ -113,11 +108,7 @@ pub enum PackError {
     ZeroLengthClip(u32),
 
     #[error("Clip too large: clip {clip} has {frames} frames (max {max})")]
-    ClipTooLarge {
-        clip: u32,
-        frames: u32,
-        max: u32,
-    },
+    ClipTooLarge { clip: u32, frames: u32, max: u32 },
 
     #[error("Duplicate key: {0}")]
     DuplicateKey(u16),
@@ -135,11 +126,7 @@ pub enum PackError {
     InvalidUtf8,
 
     #[error("Metadata overflow: offset {offset} + length {length} exceeds metadata size {size}")]
-    MetadataOverflow {
-        offset: u32,
-        length: u32,
-        size: u32,
-    },
+    MetadataOverflow { offset: u32, length: u32, size: u32 },
 
     #[error("Reserved field not zero: {0}")]
     ReservedNotZero(&'static str),
@@ -155,6 +142,50 @@ pub enum PackError {
 
     #[error("Manifest error: {0}")]
     ManifestError(String),
+
+    #[error("Unknown physical key: {0}")]
+    UnknownPhysicalKey(String),
+
+    #[error("Duplicate PhysicalKey: {0}")]
+    DuplicatePhysicalKey(String),
+
+    #[error("Key {0} has no samples; a key entry must contain at least one clip")]
+    EmptyKeySamples(String),
+
+    #[error("Source path escapes pack root: {0}")]
+    PathTraversal(String),
+
+    #[error("Source file not found: {0}")]
+    SourceNotFound(String),
+
+    #[error("Sample rate mismatch in {path}: expected {expected} Hz, got {actual} Hz")]
+    SampleRateMismatch {
+        path: String,
+        expected: u32,
+        actual: u32,
+    },
+
+    #[error("Non-finite sample value: {0}")]
+    NonFiniteSample(String),
+
+    #[error("Truncated audio data: expected {expected} frames, got {actual}")]
+    TruncatedAudio { expected: u64, actual: u64 },
+
+    #[error("Pack contains no keys")]
+    EmptyPack,
+
+    #[error("Pack validation failed: {0}")]
+    ValidationFailed(String),
+
+    #[error("Key: {key}\nFile: {file}\n\nReason:\n{reason}")]
+    BuildContext {
+        key: String,
+        file: String,
+        reason: String,
+    },
+
+    #[error("Failed to process {file}:\n{reason}")]
+    SourceFailed { file: String, reason: String },
 
     #[cfg(feature = "builder")]
     #[error("WAV error: {0}")]

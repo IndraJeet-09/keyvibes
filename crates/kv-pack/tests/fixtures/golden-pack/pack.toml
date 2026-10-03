@@ -1,0 +1,23 @@
+[pack]
+name = "Golden Test Pack"
+author = "KeyVibes Tests"
+version = "1.0.0"
+description = "Deterministic fixture pack for round-trip and golden-file tests."
+license = "MIT OR Apache-2.0"
+source = "keyvibes-tests"
+sample_rate = 48000
+
+[samples]
+format = "wav"
+
+[[keys]]
+physical_key = "A"
+samples = ["sounds/a-variant-0.wav", "sounds/a-variant-1.wav"]
+
+[[keys]]
+physical_key = "Space"
+samples = ["sounds/space.wav"]
+
+[[keys]]
+physical_key = "Digit1"
+samples = ["sounds/digit1.wav"]

@@ -1,54 +1,42 @@
-//! KVPack builder - creates binary packs from audio sources.
+//! KVPack builder: plans and serializes `.kvpack` files.
+//!
+//! The build pipeline is:
+//!
+//! ```text
+//! pack.toml → manifest parse → WAV decode (per source) → ClipData
+//!           → PackPlan (layout, tables, offsets) → atomic write
+//!           → self-validation via KvPack::open → rename into place
+//! ```
+//!
+//! Nothing is written to the final path until the pack has been fully
+//! validated, so a failed build never leaves a partial `.kvpack` behind.
 
 use crate::error::{PackError, PackResult};
 use crate::format::*;
+use crate::layout::{compute_layout, compute_sample_offsets};
+use crate::manifest::PackManifest;
+use crate::wav::{self, CanonicalPcm};
+use crate::writer::{self, PackPlan, WriteStage};
 use kv_core::PhysicalKey;
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
 
-/// Audio clip data for a single variant.
+/// Audio clip data for a single variant (guard samples already applied).
 #[derive(Debug, Clone)]
 pub struct ClipData {
     /// Sample data (mono i16, includes guard samples).
     pub samples: Vec<i16>,
     /// Logical frame count (without guards).
     pub logical_frames: u32,
-    /// Sample rate.
+    /// Sample rate of the source clip.
     pub sample_rate: u32,
 }
 
 impl ClipData {
-    /// Creates clip data from a WAV file.
-    ///
-    /// Automatically adds guard samples (GUARD_BEFORE at start, GUARD_AFTER at end).
-    pub fn from_wav<P: AsRef<Path>>(path: P) -> PackResult<Self> {
-        let mut reader = hound::WavReader::open(path.as_ref())?;
-        let spec = reader.spec();
-
-        // Validate format
-        if spec.sample_format != hound::SampleFormat::Int {
-            return Err(PackError::UnsupportedFormat(
-                "Only 16-bit PCM WAV supported".to_string(),
-            ));
-        }
-        if spec.bits_per_sample != 16 {
-            return Err(PackError::UnsupportedFormat(format!(
-                "Expected 16-bit, got {}",
-                spec.bits_per_sample
-            )));
-        }
-        if spec.channels != 1 {
-            return Err(PackError::UnsupportedFormat(format!(
-                "Expected mono, got {} channels",
-                spec.channels
-            )));
-        }
-
-        let sample_rate = spec.sample_rate;
-        let mut samples: Vec<i16> = reader.samples::<i16>().collect::<Result<_, _>>()?;
-        let logical_frames = samples.len() as u32;
+    /// Wraps canonical PCM (logical frames only) with guard samples.
+    pub fn from_pcm(pcm: CanonicalPcm) -> PackResult<Self> {
+        let logical_frames = pcm.samples.len() as u32;
 
         if logical_frames == 0 {
             return Err(PackError::ZeroLengthClip(0));
@@ -61,21 +49,20 @@ impl ClipData {
             });
         }
 
-        // Add guard samples
-        let first_sample = samples[0];
-        let last_sample = *samples.last().unwrap();
-
-        // Prepend GUARD_BEFORE copies of first sample
-        let mut guarded = vec![first_sample; GUARD_BEFORE as usize];
-        guarded.extend_from_slice(&samples);
-        // Append GUARD_AFTER copies of last sample
-        guarded.extend_from_slice(&vec![last_sample; GUARD_AFTER as usize]);
-
         Ok(Self {
-            samples: guarded,
+            samples: apply_guards(pcm.samples),
             logical_frames,
-            sample_rate,
+            sample_rate: pcm.sample_rate,
         })
+    }
+
+    /// Creates clip data from a WAV file.
+    ///
+    /// Accepts mono/stereo 8/16/24/32-bit PCM and 32-bit float WAVs; see
+    /// [`crate::wav::load_wav`] for the full conversion rules.
+    pub fn from_wav<P: AsRef<Path>>(path: P) -> PackResult<Self> {
+        let pcm = wav::load_wav(path.as_ref())?;
+        Self::from_pcm(pcm)
     }
 
     /// Creates clip data from raw i16 samples (adds guards).
@@ -93,15 +80,8 @@ impl ClipData {
             });
         }
 
-        let first_sample = samples[0];
-        let last_sample = *samples.last().unwrap();
-
-        let mut guarded = vec![first_sample; GUARD_BEFORE as usize];
-        guarded.extend_from_slice(&samples);
-        guarded.extend_from_slice(&vec![last_sample; GUARD_AFTER as usize]);
-
         Ok(Self {
-            samples: guarded,
+            samples: apply_guards(samples),
             logical_frames,
             sample_rate,
         })
@@ -113,10 +93,64 @@ impl ClipData {
     }
 }
 
+/// Adds `GUARD_BEFORE` copies of the first frame and `GUARD_AFTER` copies of
+/// the last frame (edge extension), as allowed by the format specification.
+fn apply_guards(samples: Vec<i16>) -> Vec<i16> {
+    let first = samples[0];
+    let last = samples[samples.len() - 1];
+
+    let mut guarded =
+        Vec::with_capacity(samples.len() + GUARD_BEFORE as usize + GUARD_AFTER as usize);
+    guarded.extend(std::iter::repeat(first).take(GUARD_BEFORE as usize));
+    guarded.extend_from_slice(&samples);
+    guarded.extend(std::iter::repeat(last).take(GUARD_AFTER as usize));
+    guarded
+}
+
+/// A progress event emitted while building a pack.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildEvent {
+    /// Build started; `total_sources` source files will be read.
+    Start { total_sources: usize },
+    /// Reading source `index` of `total` (manifest-relative path).
+    Source {
+        index: usize,
+        total: usize,
+        path: PathBuf,
+    },
+    /// Serializing bytes to the temporary file.
+    Writing,
+    /// Re-opening the temporary file for self-validation.
+    Validating,
+    /// Pack written and committed to its final path.
+    Finished,
+}
+
+/// Summary of a completed build.
+#[derive(Debug, Clone)]
+pub struct BuildReport {
+    /// Final output path.
+    pub output: PathBuf,
+    /// Number of keys in the pack.
+    pub key_count: u32,
+    /// Number of clips in the pack.
+    pub clip_count: u32,
+    /// Pack sample rate.
+    pub sample_rate: u32,
+    /// Final file size in bytes.
+    pub file_size: u64,
+    /// Sample region size in bytes.
+    pub sample_bytes: u64,
+    /// Total wall-clock build time.
+    pub elapsed: std::time::Duration,
+}
+
 /// Builder for creating KVPack files.
 pub struct PackBuilder {
-    /// Keys mapped to their variant clips.
+    /// Keys mapped to their variant clips (BTreeMap = ascending key ID order).
     keys: BTreeMap<PhysicalKey, Vec<ClipData>>,
+    /// Optional pack-wide sample rate requirement.
+    sample_rate: Option<u32>,
     /// Metadata fields.
     pub name: String,
     pub author: String,
@@ -136,6 +170,7 @@ impl PackBuilder {
     pub fn new() -> Self {
         Self {
             keys: BTreeMap::new(),
+            sample_rate: None,
             name: String::new(),
             author: String::new(),
             description: String::new(),
@@ -144,9 +179,26 @@ impl PackBuilder {
         }
     }
 
+    /// Requires every clip to use this exact sample rate.
+    ///
+    /// When unset, the rate is taken from the first clip and every other clip
+    /// must match it (the v1 format has a single pack-wide rate; no resampling
+    /// is performed in Phase 4B).
+    pub fn set_sample_rate(&mut self, rate: u32) -> PackResult<()> {
+        if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&rate) {
+            return Err(PackError::InvalidSampleRate(
+                rate,
+                MIN_SAMPLE_RATE,
+                MAX_SAMPLE_RATE,
+            ));
+        }
+        self.sample_rate = Some(rate);
+        Ok(())
+    }
+
     /// Adds a clip variant for a key.
     pub fn add_clip(&mut self, key: PhysicalKey, clip: ClipData) -> PackResult<()> {
-        let variants = self.keys.entry(key).or_insert_with(Vec::new);
+        let variants = self.keys.entry(key).or_default();
 
         if variants.len() >= MAX_VARIANTS_PER_KEY as usize {
             return Err(PackError::InvalidVariantCount {
@@ -166,153 +218,92 @@ impl PackBuilder {
         self.add_clip(key, clip)
     }
 
-    /// Writes the pack to a file.
-    pub fn write<P: AsRef<Path>>(&self, path: P) -> PackResult<()> {
-        let file = File::create(path.as_ref())?;
-        let mut writer = BufWriter::new(file);
+    /// Number of keys added so far.
+    pub fn key_count(&self) -> usize {
+        self.keys.len()
+    }
 
-        // Validate counts
+    /// Number of clips added so far.
+    pub fn clip_count(&self) -> u32 {
+        self.keys.values().map(|v| v.len() as u32).sum()
+    }
+
+    /// Resolves the pack-wide sample rate.
+    ///
+    /// All clips must agree; a mismatch is an error (no resampling).
+    fn resolve_sample_rate(&self) -> PackResult<u32> {
+        let mut rate = self.sample_rate;
+
+        for (key, variants) in &self.keys {
+            for clip in variants {
+                match rate {
+                    None => rate = Some(clip.sample_rate),
+                    Some(expected) if expected != clip.sample_rate => {
+                        return Err(PackError::SampleRateMismatch {
+                            path: format!("key {key}"),
+                            expected,
+                            actual: clip.sample_rate,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        rate.ok_or(PackError::EmptyPack)
+    }
+
+    /// Computes the complete layout, tables, and metadata for this pack.
+    ///
+    /// Pure: performs no I/O and touches nothing on disk.
+    pub fn plan(&self) -> PackResult<PackPlan<'_>> {
         let key_count = self.keys.len() as u32;
         if key_count == 0 {
-            return Err(PackError::TooManyKeys(0, 1));
+            return Err(PackError::EmptyPack);
         }
         if key_count > MAX_KEYS {
             return Err(PackError::TooManyKeys(key_count, MAX_KEYS));
         }
 
-        let clip_count: u32 = self
-            .keys
-            .values()
-            .map(|v| v.len() as u32)
-            .sum();
+        let clip_count = self.clip_count();
         if clip_count > MAX_CLIPS {
             return Err(PackError::TooManyClips(clip_count, MAX_CLIPS));
         }
 
-        // Serialize metadata
-        let metadata_bytes = self.serialize_metadata()?;
-        let metadata_size = metadata_bytes.len() as u32;
+        let sample_rate = self.resolve_sample_rate()?;
 
-        // Calculate offsets
-        let metadata_offset = HEADER_SIZE as u64;
-        let key_table_offset = metadata_offset + metadata_size as u64;
-        let key_table_size = key_count * KEY_ENTRY_SIZE as u32;
-        let clip_table_offset = key_table_offset + key_table_size as u64;
-        let clip_table_size = clip_count * CLIP_ENTRY_SIZE as u32;
-
-        // Align sample data to SAMPLE_ALIGNMENT
-        let unaligned_offset = clip_table_offset + clip_table_size as u64;
-        let sample_data_offset = ((unaligned_offset + SAMPLE_ALIGNMENT - 1) / SAMPLE_ALIGNMENT) * SAMPLE_ALIGNMENT;
-        let padding = (sample_data_offset - unaligned_offset) as usize;
-
-        // Build key and clip tables
-        let (key_table, clip_table, sample_data) = self.build_tables(sample_data_offset)?;
-
-        let sample_data_size = sample_data.len() as u64 * std::mem::size_of::<i16>() as u64;
-        let file_size = sample_data_offset + sample_data_size;
-
-        if file_size > MAX_PACK_SIZE {
-            return Err(PackError::InvalidLength {
-                field: "file_size",
-                length: file_size,
-            });
-        }
-
-        // Get sample rate from first clip
-        let sample_rate = self
-            .keys
-            .values()
-            .next()
-            .and_then(|v| v.first())
-            .map(|c| c.sample_rate)
-            .unwrap_or(48000);
-
-        // Write header
-        self.write_header(
-            &mut writer,
-            file_size,
-            key_count,
-            clip_count,
-            metadata_offset,
-            metadata_size,
-            key_table_offset,
-            key_table_size,
-            clip_table_offset,
-            clip_table_size,
-            sample_data_offset,
-            sample_data_size,
-            sample_rate,
+        let metadata = writer::encode_metadata(
+            &self.name,
+            &self.author,
+            &self.description,
+            &self.license,
+            &self.source,
         )?;
 
-        // Write metadata
-        writer.write_all(&metadata_bytes)?;
+        // Sample offsets in clip-table order.
+        let stored_frames: Vec<u32> = self
+            .keys
+            .values()
+            .flatten()
+            .map(ClipData::stored_frames)
+            .collect();
+        let (sample_offsets, sample_bytes) = compute_sample_offsets(&stored_frames)?;
 
-        // Write key table
-        writer.write_all(&key_table)?;
+        let layout = compute_layout(metadata.len() as u32, key_count, clip_count, sample_bytes)?;
 
-        // Write clip table
-        writer.write_all(&clip_table)?;
-
-        // Write padding
-        writer.write_all(&vec![0u8; padding])?;
-
-        // Write sample data
-        for sample in &sample_data {
-            writer.write_all(&sample.to_le_bytes())?;
-        }
-
-        writer.flush()?;
-        Ok(())
-    }
-
-    fn serialize_metadata(&self) -> PackResult<Vec<u8>> {
-        let mut buf = Vec::new();
-
-        let write_string = |buf: &mut Vec<u8>, s: &str| -> PackResult<()> {
-            let bytes = s.as_bytes();
-            let len = bytes.len() as u32;
-
-            if len > MAX_STRING_SIZE {
-                return Err(PackError::InvalidStringLength(len, MAX_STRING_SIZE));
-            }
-
-            buf.extend_from_slice(&len.to_le_bytes());
-            buf.extend_from_slice(bytes);
-            Ok(())
-        };
-
-        write_string(&mut buf, &self.name)?;
-        write_string(&mut buf, &self.author)?;
-        write_string(&mut buf, &self.description)?;
-        write_string(&mut buf, &self.license)?;
-        write_string(&mut buf, &self.source)?;
-
-        if buf.len() as u32 > MAX_METADATA_SIZE {
-            return Err(PackError::InvalidMetadataSize(
-                buf.len() as u32,
-                MAX_METADATA_SIZE,
-            ));
-        }
-
-        Ok(buf)
-    }
-
-    fn build_tables(&self, sample_data_offset: u64) -> PackResult<(Vec<u8>, Vec<u8>, Vec<i16>)> {
-        let mut key_table = Vec::new();
-        let mut clip_table = Vec::new();
-        let mut sample_data = Vec::new();
-
+        // Key and clip tables (keys ascending by discriminant via BTreeMap).
+        let mut key_table = Vec::with_capacity(key_count as usize * KEY_ENTRY_SIZE);
+        let mut clip_table = Vec::with_capacity(clip_count as usize * CLIP_ENTRY_SIZE);
+        let mut clips = Vec::with_capacity(clip_count as usize);
         let mut clip_index = 0u32;
 
         for (key, variants) in &self.keys {
-            // Write key entry
             key_table.extend_from_slice(&key.as_u16().to_le_bytes());
             key_table.extend_from_slice(&(variants.len() as u16).to_le_bytes());
             key_table.extend_from_slice(&clip_index.to_le_bytes());
 
-            // Write clip entries for this key's variants
             for clip in variants {
-                let sample_offset = sample_data.len() as u64 * std::mem::size_of::<i16>() as u64;
+                let sample_offset = sample_offsets[clip_index as usize];
 
                 clip_table.extend_from_slice(&sample_offset.to_le_bytes());
                 clip_table.extend_from_slice(&clip.logical_frames.to_le_bytes());
@@ -320,55 +311,140 @@ impl PackBuilder {
                 clip_table.extend_from_slice(&GUARD_AFTER.to_le_bytes());
                 clip_table.extend_from_slice(&clip.stored_frames().to_le_bytes());
 
-                // Append sample data
-                sample_data.extend_from_slice(&clip.samples);
-
+                clips.push(clip);
                 clip_index += 1;
             }
         }
 
-        Ok((key_table, clip_table, sample_data))
+        debug_assert_eq!(clip_index, clip_count);
+        debug_assert_eq!(key_table.len(), layout.key_table_size as usize);
+        debug_assert_eq!(clip_table.len(), layout.clip_table_size as usize);
+
+        Ok(PackPlan {
+            layout,
+            sample_rate,
+            key_count,
+            clip_count,
+            metadata,
+            key_table,
+            clip_table,
+            clips,
+        })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn write_header<W: Write>(
-        &self,
-        writer: &mut W,
-        file_size: u64,
-        key_count: u32,
-        clip_count: u32,
-        metadata_offset: u64,
-        metadata_size: u32,
-        key_table_offset: u64,
-        key_table_size: u32,
-        clip_table_offset: u64,
-        clip_table_size: u32,
-        sample_data_offset: u64,
-        sample_data_size: u64,
-        sample_rate: u32,
-    ) -> PackResult<()> {
-        writer.write_all(&MAGIC)?;
-        writer.write_all(&FORMAT_VERSION.to_le_bytes())?;
-        writer.write_all(&0u16.to_le_bytes())?; // flags
-        writer.write_all(&HEADER_SIZE.to_le_bytes())?;
-        writer.write_all(&file_size.to_le_bytes())?;
-        writer.write_all(&key_count.to_le_bytes())?;
-        writer.write_all(&clip_count.to_le_bytes())?;
-        writer.write_all(&metadata_offset.to_le_bytes())?;
-        writer.write_all(&metadata_size.to_le_bytes())?;
-        writer.write_all(&key_table_offset.to_le_bytes())?;
-        writer.write_all(&key_table_size.to_le_bytes())?;
-        writer.write_all(&clip_table_offset.to_le_bytes())?;
-        writer.write_all(&clip_table_size.to_le_bytes())?;
-        writer.write_all(&sample_data_offset.to_le_bytes())?;
-        writer.write_all(&sample_data_size.to_le_bytes())?;
-        writer.write_all(&sample_rate.to_le_bytes())?;
-        writer.write_all(&1u16.to_le_bytes())?; // channels = 1
-        writer.write_all(&SAMPLE_FORMAT_I16LE.to_le_bytes())?;
-        writer.write_all(&[0u8; 28])?; // reserved
+    /// Writes the pack atomically to `path`.
+    pub fn write<P: AsRef<Path>>(&self, path: P) -> PackResult<()> {
+        self.write_with_progress(path, |_| {})
+    }
 
+    /// Writes the pack atomically, reporting progress through `progress`.
+    pub fn write_with_progress<P: AsRef<Path>>(
+        &self,
+        path: P,
+        mut progress: impl FnMut(BuildEvent),
+    ) -> PackResult<()> {
+        let plan = self.plan()?;
+
+        writer::write_plan_atomic(path.as_ref(), &plan, |stage| match stage {
+            WriteStage::Writing => progress(BuildEvent::Writing),
+            WriteStage::Validating => progress(BuildEvent::Validating),
+            WriteStage::Committed => {}
+        })?;
+
+        progress(BuildEvent::Finished);
         Ok(())
     }
+}
+
+/// Builds a pack from a manifest file, reporting progress through `progress`.
+///
+/// The output is written atomically (temporary file → self-validate → rename),
+/// so a failure never leaves a partial pack at `output`.
+pub fn build_from_manifest<P: AsRef<Path>, O: AsRef<Path>>(
+    manifest_path: P,
+    output: O,
+    mut progress: impl FnMut(BuildEvent),
+) -> PackResult<BuildReport> {
+    let start = Instant::now();
+    let manifest_path = manifest_path.as_ref();
+    let output = output.as_ref();
+
+    let manifest = PackManifest::load(manifest_path)?;
+    let keys = manifest.resolved_keys()?;
+    let root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let total_sources: usize = keys.iter().map(|k| k.samples.len()).sum();
+
+    progress(BuildEvent::Start { total_sources });
+
+    let mut builder = PackBuilder::new();
+    builder.name = manifest.pack.name.clone();
+    builder.author = manifest.pack.author.clone();
+    builder.description = manifest.pack.description.clone();
+    builder.license = manifest.pack.license.clone();
+    builder.source = manifest.pack.source.clone();
+
+    if let Some(rate) = manifest.pack.sample_rate {
+        builder.set_sample_rate(rate)?;
+    }
+
+    let mut expected_rate = manifest.pack.sample_rate;
+    let mut index = 0usize;
+
+    for key in &keys {
+        for relative in &key.samples {
+            index += 1;
+            progress(BuildEvent::Source {
+                index,
+                total: total_sources,
+                path: PathBuf::from(relative),
+            });
+
+            let absolute = crate::manifest::resolve_source(root, relative).map_err(|e| {
+                PackError::BuildContext {
+                    key: key.physical_key.to_string(),
+                    file: relative.clone(),
+                    reason: e.to_string(),
+                }
+            })?;
+            let pcm = wav::load_wav(&absolute).map_err(|e| PackError::BuildContext {
+                key: key.physical_key.to_string(),
+                file: relative.clone(),
+                reason: e.to_string(),
+            })?;
+
+            // One pack-wide rate: report the offending file directly.
+            match expected_rate {
+                None => expected_rate = Some(pcm.sample_rate),
+                Some(expected) if expected != pcm.sample_rate => {
+                    return Err(PackError::BuildContext {
+                        key: key.physical_key.to_string(),
+                        file: relative.clone(),
+                        reason: format!(
+                            "sample rate mismatch: expected {expected} Hz, got {} Hz",
+                            pcm.sample_rate
+                        ),
+                    });
+                }
+                _ => {}
+            }
+
+            let clip = ClipData::from_pcm(pcm)?;
+            builder.add_clip(key.physical_key, clip)?;
+        }
+    }
+
+    builder.write_with_progress(output, &mut progress)?;
+
+    let plan = builder.plan()?;
+    Ok(BuildReport {
+        output: output.to_path_buf(),
+        key_count: plan.key_count,
+        clip_count: plan.clip_count,
+        sample_rate: plan.sample_rate,
+        file_size: plan.layout.file_size,
+        sample_bytes: plan.layout.sample_data_size,
+        elapsed: start.elapsed(),
+    })
 }
 
 #[cfg(test)]
@@ -378,16 +454,21 @@ mod tests {
     #[test]
     fn test_clip_from_samples() {
         let samples = vec![100i16, 200, 300, 400, 500];
-        let clip = ClipData::from_samples(samples.clone(), 48000).unwrap();
+        let clip = ClipData::from_samples(samples, 48000).unwrap();
 
         assert_eq!(clip.logical_frames, 5);
         assert_eq!(clip.stored_frames(), 5 + GUARD_BEFORE + GUARD_AFTER);
         assert_eq!(clip.samples[0], 100); // First guard = first sample
         assert_eq!(clip.samples[GUARD_BEFORE as usize], 100); // Logical start
-        assert_eq!(
-            clip.samples[clip.samples.len() - 1],
-            500
-        ); // Last guard = last sample
+        assert_eq!(clip.samples[clip.samples.len() - 1], 500); // Last guard
+    }
+
+    #[test]
+    fn test_clip_rejects_empty() {
+        assert!(matches!(
+            ClipData::from_samples(vec![], 48000),
+            Err(PackError::ZeroLengthClip(_))
+        ));
     }
 
     #[test]
@@ -395,6 +476,7 @@ mod tests {
         let builder = PackBuilder::new();
         let result = builder.write("/tmp/test_empty.kvpack");
         assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PackError::EmptyPack));
     }
 
     #[test]
@@ -407,8 +489,11 @@ mod tests {
         let clip = ClipData::from_samples(samples, 48000).unwrap();
         builder.add_clip(PhysicalKey::A, clip).unwrap();
 
-        // Would write to temp file in real test
-        assert_eq!(builder.keys.len(), 1);
+        assert_eq!(builder.key_count(), 1);
+        assert_eq!(builder.clip_count(), 1);
+        let plan = builder.plan().unwrap();
+        assert_eq!(plan.key_count, 1);
+        assert_eq!(plan.sample_rate, 48000);
     }
 
     #[test]
@@ -424,5 +509,128 @@ mod tests {
         let samples = vec![0i16; 100];
         let clip = ClipData::from_samples(samples, 48000).unwrap();
         assert!(builder.add_clip(PhysicalKey::A, clip).is_err());
+    }
+
+    #[test]
+    fn test_sample_rate_mismatch_rejected() {
+        let mut builder = PackBuilder::new();
+        builder.name = "Mixed".to_string();
+        builder
+            .add_clip(
+                PhysicalKey::A,
+                ClipData::from_samples(vec![1i16; 8], 48000).unwrap(),
+            )
+            .unwrap();
+        builder
+            .add_clip(
+                PhysicalKey::B,
+                ClipData::from_samples(vec![1i16; 8], 44100).unwrap(),
+            )
+            .unwrap();
+
+        assert!(matches!(
+            builder.plan(),
+            Err(PackError::SampleRateMismatch {
+                expected: 48000,
+                actual: 44100,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_required_sample_rate_enforced() {
+        let mut builder = PackBuilder::new();
+        builder.name = "Rate".to_string();
+        builder.set_sample_rate(48000).unwrap();
+        builder
+            .add_clip(
+                PhysicalKey::A,
+                ClipData::from_samples(vec![1i16; 8], 44100).unwrap(),
+            )
+            .unwrap();
+
+        assert!(matches!(
+            builder.plan(),
+            Err(PackError::SampleRateMismatch {
+                expected: 48000,
+                actual: 44100,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_plan_layout_is_consistent() {
+        let mut builder = PackBuilder::new();
+        builder.name = "Layout".to_string();
+        builder
+            .add_clip(
+                PhysicalKey::Space,
+                ClipData::from_samples(vec![0i16; 100], 48000).unwrap(),
+            )
+            .unwrap();
+        builder
+            .add_clip(
+                PhysicalKey::A,
+                ClipData::from_samples(vec![1i16; 200], 48000).unwrap(),
+            )
+            .unwrap();
+
+        let plan = builder.plan().unwrap();
+
+        // Layout math.
+        assert_eq!(plan.layout.sample_data_offset % SAMPLE_ALIGNMENT, 0);
+        assert_eq!(
+            plan.layout.file_size,
+            plan.layout.sample_data_offset + plan.layout.sample_data_size
+        );
+        assert_eq!(
+            plan.layout.sample_data_size,
+            (100 + GUARD_BEFORE + GUARD_AFTER + 200 + GUARD_BEFORE + GUARD_AFTER) as u64 * 2
+        );
+
+        // Keys are sorted by discriminant (A has a smaller ID than Space).
+        let first_key = u16::from_le_bytes([plan.key_table[0], plan.key_table[1]]);
+        assert_eq!(first_key, PhysicalKey::A.as_u16());
+    }
+
+    #[test]
+    fn test_build_round_trip_in_memory() {
+        let mut builder = PackBuilder::new();
+        builder.name = "RT".to_string();
+        builder.author = "tests".to_string();
+        builder
+            .add_clip(
+                PhysicalKey::A,
+                ClipData::from_samples(vec![10i16; 50], 48000).unwrap(),
+            )
+            .unwrap();
+
+        let out = {
+            let mut p = std::env::temp_dir();
+            p.push(format!("kvpack-builder-rt-{}.kvpack", std::process::id()));
+            p
+        };
+
+        let mut events = Vec::new();
+        builder
+            .write_with_progress(&out, |e| events.push(e))
+            .unwrap();
+
+        let pack = crate::loader::KvPack::open(&out).unwrap();
+        assert_eq!(pack.header().key_count, 1);
+        assert_eq!(pack.metadata().name, "RT");
+        assert_eq!(
+            pack.get_clip(0).unwrap().len(),
+            50 + GUARD_BEFORE as usize + GUARD_AFTER as usize
+        );
+        drop(pack);
+
+        assert!(events.iter().any(|e| matches!(e, BuildEvent::Writing)));
+        assert!(events.iter().any(|e| matches!(e, BuildEvent::Validating)));
+        assert!(matches!(events.last(), Some(BuildEvent::Finished)));
+
+        let _ = std::fs::remove_file(&out);
     }
 }

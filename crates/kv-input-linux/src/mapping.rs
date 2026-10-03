@@ -3,8 +3,8 @@
 //! This module provides the canonical mapping from Linux input keycodes
 //! to our portable PhysicalKey representation.
 
+use evdev::KeyCode as Key;
 use kv_core::PhysicalKey;
-use evdev::Key;
 
 /// Maps a Linux KeyCode to a PhysicalKey.
 ///
@@ -165,8 +165,14 @@ mod tests {
 
     #[test]
     fn test_modifier_keys() {
-        assert_eq!(map_keycode(Key::KEY_LEFTSHIFT), Some(PhysicalKey::LeftShift));
-        assert_eq!(map_keycode(Key::KEY_RIGHTSHIFT), Some(PhysicalKey::RightShift));
+        assert_eq!(
+            map_keycode(Key::KEY_LEFTSHIFT),
+            Some(PhysicalKey::LeftShift)
+        );
+        assert_eq!(
+            map_keycode(Key::KEY_RIGHTSHIFT),
+            Some(PhysicalKey::RightShift)
+        );
         assert_eq!(map_keycode(Key::KEY_LEFTCTRL), Some(PhysicalKey::LeftCtrl));
         assert_eq!(map_keycode(Key::KEY_LEFTALT), Some(PhysicalKey::LeftAlt));
     }
@@ -175,7 +181,10 @@ mod tests {
     fn test_special_keys() {
         assert_eq!(map_keycode(Key::KEY_SPACE), Some(PhysicalKey::Space));
         assert_eq!(map_keycode(Key::KEY_ENTER), Some(PhysicalKey::Enter));
-        assert_eq!(map_keycode(Key::KEY_BACKSPACE), Some(PhysicalKey::Backspace));
+        assert_eq!(
+            map_keycode(Key::KEY_BACKSPACE),
+            Some(PhysicalKey::Backspace)
+        );
         assert_eq!(map_keycode(Key::KEY_TAB), Some(PhysicalKey::Tab));
         assert_eq!(map_keycode(Key::KEY_ESC), Some(PhysicalKey::Escape));
     }
@@ -192,7 +201,10 @@ mod tests {
     fn test_numpad() {
         assert_eq!(map_keycode(Key::KEY_KP0), Some(PhysicalKey::Numpad0));
         assert_eq!(map_keycode(Key::KEY_KP9), Some(PhysicalKey::Numpad9));
-        assert_eq!(map_keycode(Key::KEY_KPENTER), Some(PhysicalKey::NumpadEnter));
+        assert_eq!(
+            map_keycode(Key::KEY_KPENTER),
+            Some(PhysicalKey::NumpadEnter)
+        );
     }
 
     #[test]

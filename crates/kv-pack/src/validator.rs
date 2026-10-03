@@ -1,7 +1,6 @@
 //! Full pack validation.
 
 use crate::error::{PackError, PackResult};
-use crate::format::*;
 use crate::header::Header;
 use crate::parser::{ClipEntry, KeyEntry};
 
@@ -12,7 +11,7 @@ pub fn validate_full(
     clip_entries: &[ClipEntry],
 ) -> PackResult<()> {
     // Validate key → clip relationships
-    for (_i, key) in key_entries.iter().enumerate() {
+    for key in key_entries.iter() {
         // First clip index within bounds
         if key.first_clip >= header.clip_count {
             return Err(PackError::InvalidClipIndex {
@@ -74,6 +73,7 @@ pub fn validate_full(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::format::*;
     use kv_core::PhysicalKey;
 
     fn make_header(key_count: u32, clip_count: u32, sample_data_size: u64) -> Header {

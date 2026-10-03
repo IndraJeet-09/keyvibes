@@ -1,17 +1,5 @@
-//! KeyVibes runtime coordination.
+//! KeyVibes runtime - coordinates input, mixer, and audio backend.
 
-use thiserror::Error;
+pub mod runtime;
 
-#[derive(Error, Debug)]
-pub enum RuntimeError {
-    #[error("Runtime error: {0}")]
-    General(String),
-}
-
-pub struct Runtime;
-
-impl Runtime {
-    pub fn new() -> Result<Self, RuntimeError> {
-        Ok(Self)
-    }
-}
+pub use runtime::Runtime;

@@ -1,75 +1,55 @@
-//! Pack format definitions.
+//! KVPack format constants and limits.
 
-use kv_core::PhysicalKey;
+/// Magic number: "KVPACK\0\0"
+pub const MAGIC: [u8; 8] = [0x4B, 0x56, 0x50, 0x41, 0x43, 0x4B, 0x00, 0x00];
 
-/// Magic bytes for KeyVibes pack format: "KVPK"
-pub const MAGIC: [u8; 4] = *b"KVPK";
+/// Format version (major)
+pub const FORMAT_VERSION: u16 = 1;
 
-/// Current pack format version.
-pub const VERSION: u32 = 1;
+/// Header size in bytes
+pub const HEADER_SIZE: u32 = 120;
 
-/// Pack file header.
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct PackHeader {
-    /// Magic bytes: "KVPK"
-    pub magic: [u8; 4],
+/// Sample data alignment (bytes)
+pub const SAMPLE_ALIGNMENT: u64 = 16;
 
-    /// Format version
-    pub version: u32,
+/// Sample format: i16 little-endian
+pub const SAMPLE_FORMAT_I16LE: u16 = 0;
 
-    /// Sample rate of all clips in this pack
-    pub sample_rate: u32,
+/// Required guard samples before clip
+pub const GUARD_BEFORE: u32 = 2;
 
-    /// Total number of clips
-    pub clip_count: u32,
+/// Required guard samples after clip
+pub const GUARD_AFTER: u32 = 3;
 
-    /// Offset to clip table
-    pub clip_table_offset: u64,
+/// Maximum number of keys (PhysicalKey::COUNT)
+pub const MAX_KEYS: u32 = 104;
 
-    /// Offset to PCM data
-    pub pcm_data_offset: u64,
+/// Maximum total clips across all keys
+pub const MAX_CLIPS: u32 = 10_000;
 
-    /// Total size of PCM data in bytes
-    pub pcm_data_size: u64,
-}
+/// Maximum variants per individual key
+pub const MAX_VARIANTS_PER_KEY: u16 = 16;
 
-/// A reference to a range of clip variants for a key.
-#[derive(Debug, Copy, Clone)]
-pub struct ClipRange {
-    /// Index of first clip
-    pub start: u32,
+/// Maximum clip length in frames (~3 minutes at 48kHz)
+pub const MAX_CLIP_FRAMES: u32 = 10_000_000;
 
-    /// Number of clips (variants)
-    pub count: u32,
-}
+/// Maximum metadata section size (64 KB)
+pub const MAX_METADATA_SIZE: u32 = 65_536;
 
-/// Metadata for one audio clip.
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct Clip {
-    /// Offset within PCM data (in samples, not bytes)
-    pub offset: u32,
+/// Maximum individual string size (4 KB)
+pub const MAX_STRING_SIZE: u32 = 4_096;
 
-    /// Length in samples (mono)
-    pub length: u32,
-}
+/// Maximum pack file size (2 GB)
+pub const MAX_PACK_SIZE: u64 = 2_147_483_648;
 
-impl PackHeader {
-    /// Validates the header.
-    pub fn validate(&self) -> Result<(), &'static str> {
-        if self.magic != MAGIC {
-            return Err("Invalid magic bytes");
-        }
+/// Minimum valid sample rate
+pub const MIN_SAMPLE_RATE: u32 = 8_000;
 
-        if self.version != VERSION {
-            return Err("Unsupported pack version");
-        }
+/// Maximum valid sample rate
+pub const MAX_SAMPLE_RATE: u32 = 192_000;
 
-        if self.sample_rate == 0 || self.sample_rate > 192000 {
-            return Err("Invalid sample rate");
-        }
+/// Size of key entry in bytes
+pub const KEY_ENTRY_SIZE: usize = 8;
 
-        Ok(())
-    }
-}
+/// Size of clip entry in bytes
+pub const CLIP_ENTRY_SIZE: usize = 24;

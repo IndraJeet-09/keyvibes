@@ -9,10 +9,12 @@ repository.workspace = true
 
 [dependencies]
 kv-core.workspace = true
+memmap2 = "0.9"
 thiserror.workspace = true
-memmap2.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+hound = "3.5"  # For WAV decoding in builder
+
+[features]
+builder = []  # Enable pack building functionality

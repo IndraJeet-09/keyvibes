@@ -12,9 +12,9 @@ kv-core.workspace = true
 kv-ring.workspace = true
 
 [dev-dependencies]
-criterion.workspace = true
+criterion = { workspace = true, features = ["html_reports"] }
 proptest.workspace = true
 
 [[bench]]
-name = "mixer"
+name = "mixer_bench"
 harness = false

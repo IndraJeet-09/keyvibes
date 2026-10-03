@@ -1,0 +1,2 @@
+# Phase 4 Analysis (Continuation)
+Completed: kvpack-format.md spec (409 lines), loader/parser/validator/header/lib/format/error (8 rs files), lookup.rs (VariantState). Defects in loader.rs: lookup linear scan (needs binary search), duplicates KeySounds/VariantState/PackStats (conflict lookup.rs), KeySounds field mismatch, metadata() empty. Unimplemented: builder.rs, CLI commands, sound-test end-to-end.

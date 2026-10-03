@@ -1,0 +1,23 @@
+# Rust
+/target
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Assets
+/assets/soundpacks/*
+!/assets/soundpacks/.gitkeep
+
+# Generated
+/docs/api/

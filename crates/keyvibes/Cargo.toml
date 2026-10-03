@@ -1,0 +1,21 @@
+[package]
+name = "keyvibes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "keyvibes"
+path = "src/main.rs"
+
+[dependencies]
+kv-core.workspace = true
+kv-runtime.workspace = true
+kv-pack.workspace = true
+kv-input-linux.workspace = true
+kv-audio-pipewire.workspace = true
+clap.workspace = true
+anyhow.workspace = true

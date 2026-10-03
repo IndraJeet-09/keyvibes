@@ -1,0 +1,18 @@
+[package]
+name = "kv-pack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kv-core.workspace = true
+thiserror.workspace = true
+memmap2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "kv-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kv-core.workspace = true
+kv-input-linux.workspace = true
+kv-audio-pipewire.workspace = true
+kv-pack.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "kv-audio-pipewire"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kv-core.workspace = true
+kv-mixer.workspace = true
+pipewire.workspace = true
+thiserror.workspace = true

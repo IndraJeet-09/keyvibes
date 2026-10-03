@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kv-core",
+    "crates/kv-ring",
+    "crates/kv-mixer",
+    "crates/kv-pack",
+    "crates/kv-input-linux",
+    "crates/kv-audio-pipewire",
+    "crates/kv-runtime",
+    "crates/keyvibes",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["KeyVibes Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/keyvibes"
+
+[workspace.dependencies]
+# Core crates
+kv-core = { path = "crates/kv-core" }
+kv-ring = { path = "crates/kv-ring" }
+kv-mixer = { path = "crates/kv-mixer" }
+kv-pack = { path = "crates/kv-pack" }
+kv-input-linux = { path = "crates/kv-input-linux" }
+kv-audio-pipewire = { path = "crates/kv-audio-pipewire" }
+kv-runtime = { path = "crates/kv-runtime" }
+
+# External dependencies
+evdev = "0.12"
+pipewire = "0.8"
+memmap2 = "0.9"
+clap = { version = "4.5", features = ["derive"] }
+thiserror = "1.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Testing
+proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.bench]
+inherits = "release"

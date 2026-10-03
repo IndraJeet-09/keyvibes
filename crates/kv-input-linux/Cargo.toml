@@ -9,5 +9,9 @@ repository.workspace = true
 
 [dependencies]
 kv-core.workspace = true
+kv-ring.workspace = true
 evdev.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

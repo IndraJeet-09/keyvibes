@@ -31,8 +31,8 @@ kv-audio-pipewire = { path = "crates/kv-audio-pipewire" }
 kv-runtime = { path = "crates/kv-runtime" }
 
 # External dependencies
-evdev = "0.12"
-pipewire = "0.8"
+evdev = "0.13"
+pipewire = "0.10"
 memmap2 = "0.9"
 clap = { version = "4.5", features = ["derive"] }
 thiserror = "1.0"

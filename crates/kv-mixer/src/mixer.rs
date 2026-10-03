@@ -10,7 +10,6 @@
 //! The mixer is designed to be called from a real-time audio callback
 //! and performs NO allocations, blocking operations, or mutex locks.
 
-use crate::interpolation;
 use crate::limiter::SoftLimiter;
 use crate::voice::Voice;
 use kv_core::PlayCommand;
@@ -71,16 +70,19 @@ impl Mixer {
     }
 
     /// Finds an inactive voice, or steals the oldest active voice.
-    fn allocate_voice(&mut self) -> &mut Voice {
+    /// Returns the index of the allocated voice.
+    fn allocate_voice(&mut self) -> usize {
         // First, try to find an inactive voice
-        if let Some(voice) = self.voices.iter_mut().find(|v| !v.active) {
-            return voice;
+        if let Some((idx, _)) = self.voices.iter_mut().enumerate().find(|(_, v)| !v.active) {
+            return idx;
         }
 
         // All voices active, steal the oldest
         self.voices
-            .iter_mut()
-            .min_by_key(|v| v.generation)
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, v)| v.generation)
+            .map(|(idx, _)| idx)
             .expect("MAX_VOICES > 0")
     }
 
@@ -90,15 +92,16 @@ impl Mixer {
     pub fn trigger(&mut self, cmd: PlayCommand) {
         self.generation = self.generation.wrapping_add(1);
 
-        let voice = self.allocate_voice();
+        let idx = self.allocate_voice();
+        let generation = self.generation;
 
-        voice.activate(
+        self.voices[idx].activate(
             cmd.sample_ptr,
             cmd.sample_len,
             cmd.pitch_step,
             cmd.left_gain,
             cmd.right_gain,
-            self.generation,
+            generation,
         );
     }
 
@@ -206,8 +209,8 @@ mod tests {
         let mut mixer = Mixer::new(48000);
 
         // First allocation should succeed
-        let voice = mixer.allocate_voice();
-        assert!(!voice.active);
+        let idx = mixer.allocate_voice();
+        assert!(!mixer.voices[idx].active);
 
         // Fill all voices
         for i in 0..MAX_VOICES {
@@ -216,8 +219,8 @@ mod tests {
         }
 
         // Should steal the oldest
-        let voice = mixer.allocate_voice();
-        assert_eq!(voice.generation, 0);
+        let idx = mixer.allocate_voice();
+        assert_eq!(mixer.voices[idx].generation, 0);
     }
 
     #[test]

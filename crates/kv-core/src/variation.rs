@@ -35,7 +35,6 @@ impl PitchVariation {
     /// Returns a ratio in the range [2^(-cents/1200), 2^(cents/1200)].
     #[inline]
     pub fn random_ratio(&self, rng: &mut impl rand_core::RngCore) -> f32 {
-        use rand_core::RngCore;
 
         // Generate random cents in [-cents, +cents]
         let random_u32 = rng.next_u32();
@@ -84,7 +83,6 @@ impl GainVariation {
     /// Returns a gain in the range [10^(-dB/20), 10^(dB/20)].
     #[inline]
     pub fn random_gain(&self, rng: &mut impl rand_core::RngCore) -> f32 {
-        use rand_core::RngCore;
 
         // Generate random dB in [-db, +db]
         let random_u32 = rng.next_u32();

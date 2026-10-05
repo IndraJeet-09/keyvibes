@@ -184,6 +184,12 @@ pub enum PackError {
         reason: String,
     },
 
+    #[error(
+        "Unusable signal: peak {peak_dbfs:.1} dBFS is below the minimum {minimum_dbfs:.1} dBFS.\n\
+         The source is silence or pure DC once the DC offset is removed."
+    )]
+    UnusableSignal { peak_dbfs: f32, minimum_dbfs: f32 },
+
     #[error("Failed to process {file}:\n{reason}")]
     SourceFailed { file: String, reason: String },
 

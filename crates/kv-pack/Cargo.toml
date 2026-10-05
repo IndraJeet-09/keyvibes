@@ -18,6 +18,11 @@ toml = { workspace = true, optional = true }
 [dev-dependencies]
 proptest.workspace = true
 hound.workspace = true
+criterion = { workspace = true, features = ["html_reports"] }
+
+[[bench]]
+name = "processing_bench"
+harness = false
 
 [features]
 default = ["builder"]

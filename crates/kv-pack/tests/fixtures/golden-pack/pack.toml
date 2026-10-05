@@ -10,6 +10,10 @@ sample_rate = 48000
 [samples]
 format = "wav"
 
+# Golden output must stay byte-identical to Phase 4: no DSP, no dither.
+[processing]
+enabled = false
+
 [[keys]]
 physical_key = "A"
 samples = ["sounds/a-variant-0.wav", "sounds/a-variant-1.wav"]

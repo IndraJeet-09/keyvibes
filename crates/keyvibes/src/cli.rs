@@ -49,6 +49,30 @@ pub enum Command {
         #[arg(short = 't', long, default_value_t = 10)]
         seconds: u64,
     },
+
+    /// Analyze source audio without writing anything
+    ///
+    /// Accepts WAV files (analyzed with default processing settings) or a
+    /// pack.toml manifest (analyzed with its own `[processing]` section, so
+    /// the report shows exactly what `pack build` would do).
+    Analyze {
+        /// WAV files or a pack.toml manifest
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+    },
+
+    /// Process one WAV through the audio pipeline and write the result
+    ///
+    /// Applies DC correction, trim, fade, loudness normalization, peak
+    /// protection, and dithered quantization; writes a 16-bit mono PCM WAV.
+    Process {
+        /// Input WAV file
+        input: PathBuf,
+
+        /// Output WAV path
+        #[arg(short, long)]
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug)]

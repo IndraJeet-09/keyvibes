@@ -46,8 +46,10 @@ fn write_manifest(root: &Path, text: &str) -> PathBuf {
 }
 
 fn manifest_with_samples(samples: &[&str]) -> String {
-    let mut text =
-        String::from("[pack]\nname = \"Temp Pack\"\nauthor = \"tests\"\nsample_rate = 48000\n\n");
+    // Phase 4 byte-compat tests: exact sample round-trips need the raw path.
+    let mut text = String::from(
+        "[pack]\nname = \"Temp Pack\"\nauthor = \"tests\"\nsample_rate = 48000\n\n[processing]\nenabled = false\n\n",
+    );
     text.push_str("[[keys]]\nphysical_key = \"A\"\nsamples = [");
     for (i, s) in samples.iter().enumerate() {
         if i > 0 {
@@ -215,7 +217,7 @@ fn variant_order_follows_the_manifest() {
     write_wav(&root.join("sounds/one.wav"), &[111; 8]);
     write_wav(&root.join("sounds/two.wav"), &[222; 8]);
 
-    let manifest = "[pack]\nname = \"V\"\nsample_rate = 48000\n\n[[keys]]\nphysical_key = \"A\"\nsamples = [\"sounds/one.wav\", \"sounds/two.wav\"]\n";
+    let manifest = "[pack]\nname = \"V\"\nsample_rate = 48000\n\n[processing]\nenabled = false\n\n[[keys]]\nphysical_key = \"A\"\nsamples = [\"sounds/one.wav\", \"sounds/two.wav\"]\n";
     write_manifest(&root, manifest);
 
     let out = root.join("out.kvpack");
@@ -301,7 +303,7 @@ fn sample_rate_mismatch_reports_offending_file() {
     writer.write_sample(0i16).unwrap();
     writer.finalize().unwrap();
 
-    let manifest = "[pack]\nname = \"Mixed\"\n\n[[keys]]\nphysical_key = \"A\"\nsamples = [\"sounds/ok.wav\", \"sounds/other.wav\"]\n";
+    let manifest = "[pack]\nname = \"Mixed\"\n\n[processing]\nenabled = false\n\n[[keys]]\nphysical_key = \"A\"\nsamples = [\"sounds/ok.wav\", \"sounds/other.wav\"]\n";
     write_manifest(&root, manifest);
 
     let err =

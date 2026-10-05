@@ -14,6 +14,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+mod audio_cmd;
 mod cli;
 mod diagnostics;
 
@@ -76,6 +77,8 @@ fn main() -> Result<()> {
         },
         Some(Command::Run { pack, rate }) => run_engine(&pack, rate, cli.verbose),
         Some(Command::InputTest { seconds }) => input_test(seconds, cli.verbose),
+        Some(Command::Analyze { sources }) => audio_cmd::analyze(&sources),
+        Some(Command::Process { input, output }) => audio_cmd::process(&input, &output),
         None => {
             println!("KeyVibes v{}", env!("CARGO_PKG_VERSION"));
             println!("Run with --help to see available commands.");
@@ -97,6 +100,23 @@ fn build_pack(manifest: &Path, output: &Path, verbose: bool) -> Result<()> {
         kv_pack::BuildEvent::Source { index, total, path } => {
             if verbose {
                 println!("  [{index}/{total}] {}", path.display());
+            }
+        }
+        kv_pack::BuildEvent::Processed { key, variant, report } => {
+            if verbose {
+                println!(
+                    "    processed {key} variant {variant}: {} -> {} frames, peak {:.2} -> {:.2} dBFS, rms {:.1} -> {:.1} dBFS, gain {:+.1} dB",
+                    report.original_frames,
+                    report.processed_frames,
+                    report.original_peak_dbfs,
+                    report.final_peak_dbfs,
+                    report.original_rms_dbfs,
+                    report.final_rms_dbfs,
+                    report.gain_db,
+                );
+                for warning in &report.warnings {
+                    println!("      warning: {warning}");
+                }
             }
         }
         kv_pack::BuildEvent::Writing => println!("  writing pack..."),

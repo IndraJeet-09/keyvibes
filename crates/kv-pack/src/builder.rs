@@ -3,18 +3,24 @@
 //! The build pipeline is:
 //!
 //! ```text
-//! pack.toml → manifest parse → WAV decode (per source) → ClipData
+//! pack.toml → manifest parse → WAV decode (per source)
+//!           → [processing enabled?] f32 pipeline → i16 + dither
+//!           → ClipData (guards)
 //!           → PackPlan (layout, tables, offsets) → atomic write
 //!           → self-validation via KvPack::open → rename into place
 //! ```
 //!
-//! Nothing is written to the final path until the pack has been fully
-//! validated, so a failed build never leaves a partial `.kvpack` behind.
+//! With `[processing] enabled = false` the pipeline is exactly the Phase 4
+//! raw decode path (byte-identical output). Nothing is written to the final
+//! path until the pack has been fully validated, so a failed build never
+//! leaves a partial `.kvpack` behind.
 
+use crate::dither::DitherSeed;
 use crate::error::{PackError, PackResult};
 use crate::format::*;
 use crate::layout::{compute_layout, compute_sample_offsets};
 use crate::manifest::PackManifest;
+use crate::processing::{AudioProcessor, ProcessingConfig, ProcessingReport};
 use crate::wav::{self, CanonicalPcm};
 use crate::writer::{self, PackPlan, WriteStage};
 use kv_core::PhysicalKey;
@@ -108,7 +114,7 @@ fn apply_guards(samples: Vec<i16>) -> Vec<i16> {
 }
 
 /// A progress event emitted while building a pack.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BuildEvent {
     /// Build started; `total_sources` source files will be read.
     Start { total_sources: usize },
@@ -117,6 +123,13 @@ pub enum BuildEvent {
         index: usize,
         total: usize,
         path: PathBuf,
+    },
+    /// One clip finished processing (`variant` is the index within the
+    /// key's sample list). Only emitted when processing is enabled.
+    Processed {
+        key: PhysicalKey,
+        variant: u16,
+        report: ProcessingReport,
     },
     /// Serializing bytes to the temporary file.
     Writing,
@@ -356,6 +369,27 @@ impl PackBuilder {
     }
 }
 
+/// Resolves the dither seed for one clip, or `None` when dithering is off.
+///
+/// Deterministic mode derives from `(pack seed, key, variant, manifest-
+/// relative source path)`, so the same manifest always produces the same
+/// dither sequence — on any machine. `random_dither` trades that for OS
+/// entropy (documented as build-time non-reproducible).
+fn dither_seed_for(
+    cfg: &ProcessingConfig,
+    key: PhysicalKey,
+    variant: u16,
+    source: &str,
+) -> Option<DitherSeed> {
+    if !cfg.dither {
+        return None;
+    }
+    if cfg.random_dither {
+        return Some(DitherSeed::random());
+    }
+    Some(DitherSeed::derive(cfg.dither_seed, key, variant, source))
+}
+
 /// Builds a pack from a manifest file, reporting progress through `progress`.
 ///
 /// The output is written atomically (temporary file → self-validate → rename),
@@ -374,6 +408,9 @@ pub fn build_from_manifest<P: AsRef<Path>, O: AsRef<Path>>(
     let root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let total_sources: usize = keys.iter().map(|k| k.samples.len()).sum();
 
+    let processing = manifest.processing_config()?;
+    let processor = AudioProcessor::new(processing.clone());
+
     progress(BuildEvent::Start { total_sources });
 
     let mut builder = PackBuilder::new();
@@ -391,7 +428,7 @@ pub fn build_from_manifest<P: AsRef<Path>, O: AsRef<Path>>(
     let mut index = 0usize;
 
     for key in &keys {
-        for relative in &key.samples {
+        for (variant, relative) in key.samples.iter().enumerate() {
             index += 1;
             progress(BuildEvent::Source {
                 index,
@@ -406,11 +443,47 @@ pub fn build_from_manifest<P: AsRef<Path>, O: AsRef<Path>>(
                     reason: e.to_string(),
                 }
             })?;
-            let pcm = wav::load_wav(&absolute).map_err(|e| PackError::BuildContext {
-                key: key.physical_key.to_string(),
-                file: relative.clone(),
-                reason: e.to_string(),
-            })?;
+
+            let pcm = if processing.enabled {
+                // Phase 5 path: f32 decode → DSP → dithered i16.
+                // The dither seed derives from the *manifest-relative* path
+                // so builds are reproducible across machines.
+                let source = wav::decode_wav(&absolute).map_err(|e| PackError::BuildContext {
+                    key: key.physical_key.to_string(),
+                    file: relative.clone(),
+                    reason: e.to_string(),
+                })?;
+                let processed =
+                    processor
+                        .process(source.to_mono())
+                        .map_err(|e| PackError::BuildContext {
+                            key: key.physical_key.to_string(),
+                            file: relative.clone(),
+                            reason: e.to_string(),
+                        })?;
+                let seed = dither_seed_for(&processing, key.physical_key, variant as u16, relative);
+                let pcm =
+                    crate::processing::encode_i16(&processed.samples, processed.sample_rate, seed)
+                        .map_err(|e| PackError::BuildContext {
+                            key: key.physical_key.to_string(),
+                            file: relative.clone(),
+                            reason: e.to_string(),
+                        })?;
+
+                progress(BuildEvent::Processed {
+                    key: key.physical_key,
+                    variant: variant as u16,
+                    report: processed.report,
+                });
+                pcm
+            } else {
+                // Legacy path: byte-identical to Phase 4.
+                wav::load_wav(&absolute).map_err(|e| PackError::BuildContext {
+                    key: key.physical_key.to_string(),
+                    file: relative.clone(),
+                    reason: e.to_string(),
+                })?
+            };
 
             // One pack-wide rate: report the offending file directly.
             match expected_rate {

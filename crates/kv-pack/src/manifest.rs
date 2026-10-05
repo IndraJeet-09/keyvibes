@@ -45,6 +45,62 @@ pub struct SamplesSection {
     pub format: Option<String>,
 }
 
+/// Optional `[processing]` section.
+///
+/// Every field is optional; omitted fields fall back to the documented
+/// defaults in [`ProcessingConfig`](crate::processing::ProcessingConfig). The whole section is optional too: a
+/// manifest without it builds with processing enabled and all defaults.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProcessingSection {
+    /// Master switch. `false` selects the legacy raw-decode path, which is
+    /// byte-for-byte the Phase 4 behavior.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Silence floor in dBFS (absolute).
+    #[serde(default)]
+    pub silence_threshold_dbfs: Option<f32>,
+    /// Onset threshold in dB relative to the clip peak.
+    #[serde(default)]
+    pub onset_threshold_db: Option<f32>,
+    /// Tail threshold in dB relative to the clip peak.
+    #[serde(default)]
+    pub tail_threshold_db: Option<f32>,
+    /// Preroll kept before the detected onset, in milliseconds.
+    #[serde(default)]
+    pub preroll_ms: Option<f32>,
+    /// Fade-out length in milliseconds.
+    #[serde(default)]
+    pub fadeout_ms: Option<f32>,
+    /// Attack RMS window for onset confirmation, in milliseconds.
+    #[serde(default)]
+    pub attack_rms_window_ms: Option<f32>,
+    /// Target loudness (full-clip RMS) in dB.
+    #[serde(default)]
+    pub loudness_target_db: Option<f32>,
+    /// Final peak ceiling in dBFS.
+    #[serde(default)]
+    pub peak_ceiling_dbfs: Option<f32>,
+    /// Minimum usable peak in dBFS.
+    #[serde(default)]
+    pub min_signal_dbfs: Option<f32>,
+    /// Required duration of below-tail-threshold quiet before clip end, ms.
+    #[serde(default)]
+    pub tail_sustain_ms: Option<f32>,
+    /// Maximum loudness gain in dB.
+    #[serde(default)]
+    pub max_gain_db: Option<f32>,
+    /// Whether to apply TPDF dither before quantization.
+    #[serde(default)]
+    pub dither: Option<bool>,
+    /// Base seed for deterministic dither.
+    #[serde(default)]
+    pub dither_seed: Option<u64>,
+    /// Use OS entropy instead of deterministic derivation (breaks
+    /// reproducible builds).
+    #[serde(default)]
+    pub random_dither: Option<bool>,
+}
+
 /// A `[[keys]]` entry mapping one physical key to its ordered variants.
 #[derive(Debug, Clone, Deserialize)]
 pub struct KeySection {
@@ -60,6 +116,8 @@ pub struct PackManifest {
     pub pack: PackSection,
     #[serde(default)]
     pub samples: SamplesSection,
+    #[serde(default)]
+    pub processing: ProcessingSection,
     pub keys: Vec<KeySection>,
 }
 
@@ -121,6 +179,10 @@ impl PackManifest {
             ));
         }
 
+        // Reject invalid [processing] values at parse time, even when
+        // processing is disabled (a typo should never silently rot).
+        self.processing_config()?;
+
         // Resolve keys, rejecting unknown names and duplicates explicitly.
         let mut seen: HashSet<PhysicalKey> = HashSet::new();
         for entry in &self.keys {
@@ -158,6 +220,66 @@ impl PackManifest {
                 })
             })
             .collect()
+    }
+
+    /// Builds the effective [`ProcessingConfig`](crate::processing::ProcessingConfig) for this manifest.
+    ///
+    /// Omitted `[processing]` fields keep their defaults; a manifest with no
+    /// `[processing]` section at all gets
+    /// [`ProcessingConfig::default`](crate::processing::ProcessingConfig::default)
+    /// (processing enabled). The result is already validated.
+    pub fn processing_config(&self) -> PackResult<crate::processing::ProcessingConfig> {
+        use crate::processing::ProcessingConfig;
+
+        let s = &self.processing;
+        let mut cfg = ProcessingConfig::default();
+        if let Some(v) = s.enabled {
+            cfg.enabled = v;
+        }
+        if let Some(v) = s.silence_threshold_dbfs {
+            cfg.silence_threshold_dbfs = v;
+        }
+        if let Some(v) = s.onset_threshold_db {
+            cfg.onset_threshold_db = v;
+        }
+        if let Some(v) = s.tail_threshold_db {
+            cfg.tail_threshold_db = v;
+        }
+        if let Some(v) = s.preroll_ms {
+            cfg.preroll_ms = v;
+        }
+        if let Some(v) = s.fadeout_ms {
+            cfg.fadeout_ms = v;
+        }
+        if let Some(v) = s.attack_rms_window_ms {
+            cfg.attack_rms_window_ms = v;
+        }
+        if let Some(v) = s.loudness_target_db {
+            cfg.loudness_target_db = v;
+        }
+        if let Some(v) = s.peak_ceiling_dbfs {
+            cfg.peak_ceiling_dbfs = v;
+        }
+        if let Some(v) = s.min_signal_dbfs {
+            cfg.min_signal_dbfs = v;
+        }
+        if let Some(v) = s.tail_sustain_ms {
+            cfg.tail_sustain_ms = v;
+        }
+        if let Some(v) = s.max_gain_db {
+            cfg.max_gain_db = v;
+        }
+        if let Some(v) = s.dither {
+            cfg.dither = v;
+        }
+        if let Some(v) = s.dither_seed {
+            cfg.dither_seed = v;
+        }
+        if let Some(v) = s.random_dither {
+            cfg.random_dither = v;
+        }
+        cfg.validate()?;
+        Ok(cfg)
     }
 }
 
@@ -384,6 +506,67 @@ samples = ["a.wav"]
         assert!(matches!(
             PackManifest::parse(text),
             Err(PackError::InvalidSampleRate(..))
+        ));
+    }
+
+    #[test]
+    fn test_processing_defaults_when_section_absent() {
+        let manifest = PackManifest::parse(VALID).unwrap();
+        let cfg = manifest.processing_config().unwrap();
+        assert!(cfg.enabled, "processing is on by default");
+        assert_eq!(cfg.fadeout_ms, crate::processing::DEFAULT_FADEOUT_MS);
+        assert_eq!(
+            cfg.loudness_target_db,
+            crate::processing::DEFAULT_LOUDNESS_TARGET_DB
+        );
+        assert!(cfg.dither, "dither on by default");
+        assert!(!cfg.random_dither);
+    }
+
+    #[test]
+    fn test_processing_section_overrides() {
+        let text = r#"
+[pack]
+name = "P"
+
+[processing]
+enabled = false
+fadeout_ms = 12.5
+loudness_target_db = -23.0
+dither = false
+dither_seed = 42
+
+[[keys]]
+physical_key = "A"
+samples = ["a.wav"]
+"#;
+        let manifest = PackManifest::parse(text).unwrap();
+        let cfg = manifest.processing_config().unwrap();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.fadeout_ms, 12.5);
+        assert_eq!(cfg.loudness_target_db, -23.0);
+        assert!(!cfg.dither);
+        assert_eq!(cfg.dither_seed, 42);
+        // Unspecified fields keep their defaults.
+        assert_eq!(cfg.preroll_ms, crate::processing::DEFAULT_PREROLL_MS);
+    }
+
+    #[test]
+    fn test_processing_invalid_value_rejected_at_parse_time() {
+        let text = r#"
+[pack]
+name = "P"
+
+[processing]
+fadeout_ms = -1.0
+
+[[keys]]
+physical_key = "A"
+samples = ["a.wav"]
+"#;
+        assert!(matches!(
+            PackManifest::parse(text),
+            Err(PackError::ValidationFailed(_))
         ));
     }
 

@@ -1,0 +1,34 @@
+# Fixture pack built through the Phase 5 processing pipeline.
+#
+# Unlike `pack.toml` (which disables processing to keep the golden bytes
+# stable), this manifest runs the full pipeline: DC correction, trim, fade,
+# loudness normalization, peak protection, and TPDF dither. The resulting
+# `../processed.kvpack` must stay byte-identical across rebuilds.
+
+[pack]
+name = "Processed Test Pack"
+author = "KeyVibes Tests"
+version = "1.0.0"
+description = "Fixture pack rebuilt through the Phase 5 processing pipeline."
+license = "MIT OR Apache-2.0"
+source = "keyvibes-tests"
+sample_rate = 48000
+
+[samples]
+format = "wav"
+
+[processing]
+enabled = true
+dither_seed = 424242
+
+[[keys]]
+physical_key = "A"
+samples = ["sounds/a-variant-0.wav", "sounds/a-variant-1.wav"]
+
+[[keys]]
+physical_key = "Space"
+samples = ["sounds/space.wav"]
+
+[[keys]]
+physical_key = "Digit1"
+samples = ["sounds/digit1.wav"]

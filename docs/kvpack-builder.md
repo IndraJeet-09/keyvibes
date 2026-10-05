@@ -13,25 +13,40 @@ validated `.kvpack` file. The format itself is specified in
 ```
 pack.toml ──manifest──▶ PackManifest ──resolve sources──▶ for each sample
                                                                 │
-                                   wav::load_wav (decode + validate + downmix)
+                                       [processing] enabled?
+                                          │               │
+                               enabled = false      enabled = true (default)
+                                          │               │
+                              wav::load_wav        wav::decode_wav → f32
+                              (legacy i16 path)            │
+                                                  AudioProcessor::process
+                                                  (DC, trim, fade, loudness,
+                                                   peak protection, dither)
+                                                           │
+                                                  processing::encode_i16
                                                                 │
                                                         ClipData::from_pcm
                                                         (guards applied)
                                                                 │
                                   builder::plan() ──▶ PackPlan { metadata, keys, clips }
                                                                 │
-                          writer::write_plan_atomic() ──▶ layout::compute_layout
+                              writer::write_plan_atomic() ──▶ layout::compute_layout
                                                                 │
                                         encode_header + sections ──▶ <path>.tmp
                                                                 │
                                   self-validate with loader::KvPack::open(tmp)
                                                                 │
-                                              fs::rename(tmp, final path)
+                                                  fs::rename(tmp, final path)
 ```
 
 Every stage returns `PackResult` (`Result<T, PackError>`). Failures during a
 per-source step are reported as `PackError::BuildContext { key, file, reason }`
 so the user sees which key and which file failed.
+
+Audio processing (the `enabled = true` branch) is specified in
+[`audio-processing.md`](./audio-processing.md). With `enabled = false` the
+builder takes the legacy raw-decode branch, which is byte-identical to the
+pre-Phase-5 output.
 
 ## Manifest (`pack.toml`)
 
@@ -47,6 +62,10 @@ sample_rate = 48000        # optional; inferred from the first sample if omitted
 
 [samples]
 format = "wav"             # optional; only "wav" is accepted
+
+[processing]                # optional; processing is enabled with defaults
+enabled = true             # false = legacy raw path (Phase 4 bytes)
+loudness_target_db = -30.0 # any subset of the tunables; see audio-processing.md
 
 [[keys]]
 physical_key = "A"         # canonical name or alias, case-insensitive
@@ -68,6 +87,9 @@ Rules (enforced by `manifest::PackManifest::validate` + `resolve_source`):
   rejected (`PathTraversal`, surfaced inside `BuildContext`). Missing files
   produce `SourceNotFound` (also inside `BuildContext`).
 - **`physical_key` unknown** → `UnknownPhysicalKey`.
+- **`[processing]` values** are validated at parse time (finite, in range);
+  invalid values → `ValidationFailed` naming the field. See
+  [`audio-processing.md`](./audio-processing.md) for the full reference.
 
 ## WAV policy
 
@@ -184,17 +206,26 @@ samples; `from_samples` applies guards to raw (guard-free) samples.
 keyvibes pack build <MANIFEST> -o <OUTPUT> [--verbose]
 keyvibes pack validate <PACK>
 keyvibes pack inspect <PACK> [--clips]
+keyvibes analyze <wav|pack.toml>...
+keyvibes process <input.wav> -o <output.wav>
 ```
 
 `pack build` streams progress (`[n/total] reading …`, `writing pack…`,
 `validating pack…`) and reports the summary line
-`Built <path>: N keys, N clips, N Hz, N bytes`.
+`Built <path>: N keys, N clips, N Hz, N bytes`. With `--verbose` it also
+prints one line per processed clip (frames, peak/RMS, gain) plus any
+processing warnings.
 
 `pack validate` runs the full loader validation plus structural checks and
 prints `OK` or the failing check with context.
 
 `pack inspect` prints metadata, header fields, section offsets/sizes, the key
 table, and (`--clips`) per-clip offset/frame/guard information.
+
+`analyze` is the read-only counterpart: it prints the full processing report
+for each source without writing anything, and `process` renders a single WAV
+through the pipeline. Both are documented in
+[`audio-processing.md`](./audio-processing.md).
 
 ## Error reporting
 
@@ -207,6 +238,7 @@ Per-source failures are wrapped so the CLI can print
 | `..` / absolute / symlink escape | `BuildContext { …, reason: "Source path escapes pack root: …" }` |
 | Wrong sample rate | `BuildContext { …, reason: "sample rate mismatch: expected … got …" }` |
 | Bad WAV data | `BuildContext { …, reason: "<hound/wav message>" }` |
+| Silence / pure-DC source (processing on) | `BuildContext { …, reason: "Unusable signal: …" }` |
 | Unknown / duplicate key | `UnknownPhysicalKey`, `DuplicatePhysicalKey` (manifest-level, no file) |
 | Mixed rates in programmatic build | `SampleRateMismatch { expected, actual }` |
 
@@ -215,22 +247,35 @@ Failed builds never leave an output file or a `.tmp` behind.
 ## Testing
 
 - Unit tests live in each module (`manifest`, `wav`, `layout`, `writer`,
-  `builder`).
+  `builder`, plus the Phase 5 `dsp`, `dither`, `analysis`, `processing`
+  modules).
 - End-to-end tests: `crates/kv-pack/tests/builder_roundtrip.rs` — golden pack
   reproducibility, sample/guard round-trip, stereo downmix, manifest variant
   order, determinism, error cases (missing source, rate mismatch, traversal,
   unknown/duplicate keys), corrupt/truncated pack rejection, programmatic
   builder.
-- Fixtures: `crates/kv-pack/tests/fixtures/golden-pack/` (manifest + WAVs) and
-  the committed `crates/kv-pack/tests/fixtures/golden.kvpack`, regenerated with:
+- Processing pipeline: `crates/kv-pack/tests/processing_pipeline.rs` (build,
+  reports, trim, determinism, failures, processed golden fixture) and
+  `crates/kv-pack/tests/processing_props.rs` (property tests).
+- Fixtures: `crates/kv-pack/tests/fixtures/golden-pack/` (manifest + WAVs)
+  with the committed `crates/kv-pack/tests/fixtures/golden.kvpack`
+  (`pack.toml`, processing disabled) and
+  `crates/kv-pack/tests/fixtures/processed.kvpack` (`pack-processed.toml`,
+  processing enabled), regenerated with:
 
   ```
   cargo run -p keyvibes -- pack build crates/kv-pack/tests/fixtures/golden-pack/pack.toml \
       -o crates/kv-pack/tests/fixtures/golden.kvpack --verbose
+  cargo run -p keyvibes -- pack build crates/kv-pack/tests/fixtures/golden-pack/pack-processed.toml \
+      -o crates/kv-pack/tests/fixtures/processed.kvpack --verbose
   ```
 
-## Out of scope (Phase 5)
+## Audio processing
 
-The builder performs no DSP: no dB thresholds, no fades, no dither, no loudness
-normalization. Samples are written exactly as decoded (after downmix and
-float→i16 quantization).
+Whether the builder runs DSP is decided by the manifest's `[processing]`
+section (enabled by default). The pipeline, all tunables, warnings, the
+`analyze`/`process` CLI tools, and the determinism rules are specified in
+[`audio-processing.md`](./audio-processing.md). With `enabled = false` the
+builder performs no DSP at all: samples are written exactly as decoded
+(after downmix and float→i16 quantization), byte-identical to the Phase 4
+output.

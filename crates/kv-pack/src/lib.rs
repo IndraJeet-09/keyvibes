@@ -24,11 +24,19 @@ pub mod playback;
 pub mod validator;
 
 #[cfg(feature = "builder")]
+pub mod analysis;
+#[cfg(feature = "builder")]
 pub mod builder;
+#[cfg(feature = "builder")]
+pub mod dither;
+#[cfg(feature = "builder")]
+pub mod dsp;
 #[cfg(feature = "builder")]
 pub mod layout;
 #[cfg(feature = "builder")]
 pub mod manifest;
+#[cfg(feature = "builder")]
+pub mod processing;
 #[cfg(feature = "builder")]
 pub mod wav;
 #[cfg(feature = "builder")]
@@ -45,6 +53,10 @@ pub use playback::PlayCommand;
 pub use builder::{build_from_manifest, BuildEvent, BuildReport, ClipData, PackBuilder};
 #[cfg(feature = "builder")]
 pub use manifest::PackManifest;
+#[cfg(feature = "builder")]
+pub use processing::{
+    AudioProcessor, ProcessedAudio, ProcessingConfig, ProcessingReport, ProcessingWarning,
+};
 #[cfg(feature = "builder")]
 pub use writer::{PackPlan, WriteStage};
 

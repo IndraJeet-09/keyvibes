@@ -11,12 +11,51 @@
 //! and performs NO allocations, blocking operations, or mutex locks.
 
 use crate::limiter::SoftLimiter;
+use crate::variation::{scale_pitch_step, VariationConfig, VariationState};
 use crate::voice::Voice;
 use kv_core::PlayCommand;
 use kv_ring::SpscRing;
 
 /// Maximum number of simultaneous voices.
 pub const MAX_VOICES: usize = 32;
+
+/// Seed for the default variation generator.
+///
+/// Fixed so renders are reproducible; tests swap it when they want a
+/// different sequence.
+const DEFAULT_VARIATION_SEED: u32 = 0x4B56_5642;
+
+/// Everything the mixer takes from user settings.
+///
+/// Handed to the mixer when the audio stream is built: the mixer lives on the
+/// real-time thread, so this cannot be changed without rebuilding the stream.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct MixerSettings {
+    /// Master volume [0.0, 1.0], already through
+    /// [`kv_core::Settings::perceptual_gain`].
+    pub master_gain: f32,
+    /// Per-trigger pitch and gain variation.
+    pub variation: VariationConfig,
+}
+
+impl Default for MixerSettings {
+    fn default() -> Self {
+        Self {
+            master_gain: 1.0,
+            variation: VariationConfig::default(),
+        }
+    }
+}
+
+impl MixerSettings {
+    /// Derives mixer settings from the user settings.
+    pub fn from_settings(settings: &kv_core::Settings) -> Self {
+        Self {
+            master_gain: settings.perceptual_gain(),
+            variation: VariationConfig::from_settings(settings),
+        }
+    }
+}
 
 /// Audio mixer with fixed polyphony.
 pub struct Mixer {
@@ -37,19 +76,64 @@ pub struct Mixer {
 
     /// Soft limiter.
     limiter: SoftLimiter,
+
+    /// Peak absolute sample written by the most recent `render_block`.
+    ///
+    /// Used by the audio backend for lock-free output-level diagnostics.
+    peak: f32,
+
+    /// How far each triggered voice is detuned and re-levelled.
+    variation_config: VariationConfig,
+
+    /// Rotator and generator advanced once per triggered voice.
+    variation: VariationState,
 }
 
 impl Mixer {
     /// Creates a new mixer with the given output sample rate.
     pub fn new(output_rate: u32) -> Self {
+        Self::with_settings(output_rate, MixerSettings::default())
+    }
+
+    /// Creates a mixer configured from `settings`.
+    pub fn with_settings(output_rate: u32, settings: MixerSettings) -> Self {
+        Self::with_seed(output_rate, settings, DEFAULT_VARIATION_SEED)
+    }
+
+    /// Creates a mixer with an explicit variation seed.
+    pub fn with_seed(output_rate: u32, settings: MixerSettings, seed: u32) -> Self {
+        let gain = settings.master_gain.clamp(0.0, 2.0);
         Self {
             voices: std::array::from_fn(|_| Voice::default()),
             generation: 0,
             output_rate,
-            current_gain: 1.0,
-            target_gain: 1.0,
+            current_gain: gain,
+            target_gain: gain,
             limiter: SoftLimiter::default(),
+            peak: 0.0,
+            variation_config: settings.variation,
+            variation: VariationState::new(seed),
         }
+    }
+
+    /// Replaces the variation configuration. Takes effect on the next trigger.
+    pub fn set_variation(&mut self, config: VariationConfig) {
+        self.variation_config = config;
+    }
+
+    /// The active variation configuration.
+    pub fn variation_config(&self) -> VariationConfig {
+        self.variation_config
+    }
+
+    /// The variation rotator, for diagnostics and tests.
+    pub fn variation_state(&self) -> VariationState {
+        self.variation
+    }
+
+    /// Read-only view of a voice slot, for diagnostics and tests.
+    pub fn voice(&self, index: usize) -> Option<&Voice> {
+        self.voices.get(index)
     }
 
     /// Sets the target master gain.
@@ -72,6 +156,11 @@ impl Mixer {
     /// Returns the number of currently active voices.
     pub fn active_voice_count(&self) -> usize {
         self.voices.iter().filter(|v| v.active).count()
+    }
+
+    /// Peak absolute sample written by the most recent `render_block`.
+    pub fn last_peak(&self) -> f32 {
+        self.peak
     }
 
     /// Finds an inactive voice, or steals the oldest active voice.
@@ -100,12 +189,16 @@ impl Mixer {
         let idx = self.allocate_voice();
         let generation = self.generation;
 
+        // One rotation step and one jitter draw per voice, never per sample.
+        let variation = self.variation.next(&self.variation_config);
+        let gain = variation.gain();
+
         self.voices[idx].activate(
             cmd.sample_ptr,
             cmd.sample_len,
-            cmd.pitch_step,
-            cmd.left_gain,
-            cmd.right_gain,
+            scale_pitch_step(cmd.pitch_step, variation.pitch_ratio()),
+            cmd.left_gain * gain,
+            cmd.right_gain * gain,
             generation,
         );
     }
@@ -137,6 +230,9 @@ impl Mixer {
     ///
     /// `output` is a stereo interleaved buffer: [L, R, L, R, ...]
     ///
+    /// When no voice is active the block is zero-filled without touching the
+    /// voice array: this is the idle fast path taken on every silent quantum.
+    ///
     /// # Safety
     ///
     /// All active voices must have valid sample pointers.
@@ -148,12 +244,22 @@ impl Mixer {
 
         let frame_count = output.len() / 2;
 
+        // Idle fast path: nothing to mix, so nothing to interpolate or limit.
+        if self.active_voice_count() == 0 {
+            output.fill(0.0);
+            self.current_gain = self.target_gain;
+            self.peak = 0.0;
+            return;
+        }
+
         // Calculate gain ramp step
         let gain_delta = if frame_count > 0 {
             (self.target_gain - self.current_gain) / frame_count as f32
         } else {
             0.0
         };
+
+        let mut peak = 0.0f32;
 
         for i in 0..frame_count {
             // Render one frame
@@ -170,10 +276,13 @@ impl Mixer {
             // Write to output
             output[i * 2] = left;
             output[i * 2 + 1] = right;
+
+            peak = peak.max(left.abs()).max(right.abs());
         }
 
         // Update current gain
         self.current_gain = self.target_gain;
+        self.peak = peak;
     }
 
     /// Processes play commands from the queue and renders a block.

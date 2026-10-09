@@ -4,7 +4,7 @@
 //! consulting an immutable, memory-mapped [`KvPack`]. It is shared (via
 //! `Arc`) by every input thread; variant rotation state stays thread-local.
 
-use kv_core::{PhysicalKey, PlayCommand, SoundSource, VariantState};
+use kv_core::{KeyGeometry, PhysicalKey, PlayCommand, SoundSource, VariantState};
 use kv_pack::KvPack;
 use std::sync::Arc;
 
@@ -17,16 +17,20 @@ pub struct PackPlayer {
     output_rate: u32,
     left_gain: f32,
     right_gain: f32,
+    spatial: bool,
 }
 
 impl PackPlayer {
     /// Creates a player for `pack` rendering at `output_rate`.
+    ///
+    /// Stereo spatialization is on by default; see [`spatial`](Self::spatial).
     pub fn new(pack: Arc<KvPack>, output_rate: u32) -> Self {
         Self {
             pack,
             output_rate,
             left_gain: 1.0,
             right_gain: 1.0,
+            spatial: true,
         }
     }
 
@@ -42,7 +46,23 @@ impl PackPlayer {
             output_rate,
             left_gain,
             right_gain,
+            spatial: true,
         }
+    }
+
+    /// Enables or disables key-position stereo spatialization.
+    ///
+    /// When enabled, each key's horizontal position on the ANSI layout is
+    /// converted to an equal-power pan before the command is queued, so sounds
+    /// sit roughly where the fingers are.
+    pub fn spatial(&mut self, enabled: bool) -> &mut Self {
+        self.spatial = enabled;
+        self
+    }
+
+    /// Whether key-position spatialization is applied.
+    pub fn is_spatial(&self) -> bool {
+        self.spatial
     }
 
     /// The pack this player reads samples from.
@@ -59,13 +79,22 @@ impl PackPlayer {
 impl SoundSource for PackPlayer {
     #[inline]
     fn play(&self, key: PhysicalKey, state: &mut VariantState) -> Option<PlayCommand> {
-        self.pack.play_command(
+        let mut command = self.pack.play_command(
             key,
             state,
             self.output_rate,
             self.left_gain,
             self.right_gain,
-        )
+        )?;
+
+        if self.spatial {
+            let pan = KeyGeometry::default_position(key).calculate_pan();
+            let (left, right) = KeyGeometry::pan_to_gains(pan);
+            command.left_gain *= left;
+            command.right_gain *= right;
+        }
+
+        Some(command)
     }
 }
 
@@ -91,6 +120,11 @@ mod tests {
                 ClipData::from_samples(vec![-100i16; 32], 48000).unwrap(),
             )
             .unwrap();
+        for key in [PhysicalKey::Q, PhysicalKey::P] {
+            builder
+                .add_clip(key, ClipData::from_samples(vec![50i16; 32], 48000).unwrap())
+                .unwrap();
+        }
 
         // Unique per call: tests run in parallel and would otherwise clobber
         // each other's file.
@@ -139,6 +173,75 @@ mod tests {
         assert_ne!(
             first.sample_ptr, second.sample_ptr,
             "different clips selected"
+        );
+    }
+
+    #[test]
+    fn spatial_pans_left_keys_to_the_left_channel() {
+        let player = PackPlayer::new(build_test_pack(), 48000);
+        assert!(player.is_spatial(), "spatialization is on by default");
+        let mut state = VariantState::default();
+
+        let cmd = player
+            .play(PhysicalKey::Q, &mut state)
+            .expect("key Q has a sound");
+        assert!(
+            cmd.left_gain > cmd.right_gain,
+            "Q sits on the left of the board: left={}, right={}",
+            cmd.left_gain,
+            cmd.right_gain
+        );
+    }
+
+    #[test]
+    fn spatial_pans_right_keys_to_the_right_channel() {
+        let player = PackPlayer::new(build_test_pack(), 48000);
+        let mut state = VariantState::default();
+
+        let cmd = player
+            .play(PhysicalKey::P, &mut state)
+            .expect("key P has a sound");
+        assert!(
+            cmd.right_gain > cmd.left_gain,
+            "P sits on the right of the board: left={}, right={}",
+            cmd.left_gain,
+            cmd.right_gain
+        );
+    }
+
+    #[test]
+    fn spatial_disabled_keeps_both_channels_equal() {
+        let mut player = PackPlayer::new(build_test_pack(), 48000);
+        player.spatial(false);
+        let mut state = VariantState::default();
+
+        for key in [PhysicalKey::Q, PhysicalKey::P, PhysicalKey::A] {
+            let cmd = player.play(key, &mut state).expect("key has a sound");
+            assert_eq!(
+                cmd.left_gain, cmd.right_gain,
+                "spatialization must be off for {key:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn spatial_equal_power_gains_stay_below_unity_swell() {
+        let player = PackPlayer::new(build_test_pack(), 48000);
+        let mut state = VariantState::default();
+
+        let cmd = player
+            .play(PhysicalKey::A, &mut state)
+            .expect("key A has a sound");
+        assert!(
+            cmd.left_gain > 0.0 && cmd.right_gain > 0.0,
+            "panning must never mute a channel"
+        );
+        // Equal-power pan keeps the sum of squares at most 2.0 for a
+        // centered source, and never exceeds the hard-panned extremes.
+        let power = cmd.left_gain * cmd.left_gain + cmd.right_gain * cmd.right_gain;
+        assert!(
+            power <= 2.0001,
+            "equal-power pan exceeded unity power: {power}"
         );
     }
 

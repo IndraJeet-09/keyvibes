@@ -16,8 +16,11 @@ Cargo.lock
 Thumbs.db
 
 # Assets
+# Pack *sources* (manifests + WAVs) are inputs and belong in the repository;
+# the `.kvpack` archives built from them are generated and stay out.
 /assets/soundpacks/*
 !/assets/soundpacks/.gitkeep
+!/assets/soundpacks/default-src/
 
 # Generated
 /docs/api/

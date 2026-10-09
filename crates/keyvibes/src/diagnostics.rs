@@ -61,6 +61,7 @@ mod tests {
             commands_dropped: 3,
             devices_added: 1,
             devices_removed: 0,
+            ..Default::default()
         };
 
         let d = Diagnostics::from_stats(&stats);

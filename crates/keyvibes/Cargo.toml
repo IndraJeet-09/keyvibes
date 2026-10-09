@@ -20,3 +20,6 @@ kv-input-linux.workspace = true
 kv-audio-pipewire.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+evdev.workspace = true
+serde.workspace = true
+toml.workspace = true

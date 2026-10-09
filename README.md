@@ -40,6 +40,28 @@ Audio Device
 cargo build --release
 ```
 
+## Sound packs
+
+The `.kvpack` archives are generated, so a fresh clone ships only their
+sources under `assets/soundpacks/default-src/`. Build the three packs once
+after cloning:
+
+```bash
+cargo run --quiet --bin keyvibes -- pack build assets/soundpacks/default-src/pack.toml \
+    -o assets/soundpacks/Default.kvpack
+cargo run --quiet --bin keyvibes -- pack build assets/soundpacks/default-src/holy-panda.toml \
+    -o "assets/soundpacks/Holy Panda.kvpack"
+cargo run --quiet --bin keyvibes -- pack build assets/soundpacks/default-src/linear.toml \
+    -o assets/soundpacks/Linear.kvpack
+```
+
+Pick one by name - no path needed:
+
+```bash
+cargo run --quiet --bin keyvibes -- pack list
+cargo run --quiet --bin keyvibes -- --pack "Holy Panda" run
+```
+
 ## Testing
 
 ```bash
@@ -47,6 +69,25 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
+
+Each phase also has a runnable acceptance command. They print `PASS` / `FAIL`
+/ `NOT RUN` / `MANUAL` per check and exit non-zero only on a real failure, so
+a check that needs hardware or a PipeWire session this host does not have
+never masquerades as a pass:
+
+```bash
+cargo run --quiet --bin keyvibes -- hotplug-test
+cargo run --quiet --bin keyvibes -- audio-recovery-test
+cargo run --quiet --bin keyvibes -- idle-test
+cargo run --quiet --bin keyvibes -- config-test
+cargo run --quiet --bin keyvibes -- pack-test
+cargo run --quiet --bin keyvibes -- pack-switch-test
+cargo run --quiet --bin keyvibes -- compatibility-test
+cargo run --quiet --release --bin keyvibes -- stress --duration 20
+```
+
+See [docs/environment.md](docs/environment.md) for the supported
+environment - notably, no display server or compositor is required.
 
 ## Development Phases
 

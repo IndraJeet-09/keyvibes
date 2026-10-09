@@ -222,6 +222,59 @@ For precise measurement:
 
 Most users can perceive latency above 10-15ms. Target is well below this threshold.
 
+### Software Latency Gate (`keyvibes stress`)
+
+```bash
+keyvibes stress --duration 60
+```
+
+Drives a deterministic key-load generator (default ~80 keys/s, chords
+included, seeded so runs are comparable) through a real PipeWire stream for
+the given duration and exits non-zero unless **every** real-time check passes.
+
+**What it measures — software / audio-engine only:**
+
+| Stage | Statistic |
+| --- | --- |
+| event received → command enqueued | `command_latency_{p50,p95,p99,max}` |
+| command enqueued → dequeued by the callback | `queue_latency_{p50,p95,p99,max}` |
+| callback wall time vs. quantum and safety budget | `callback_{p50,p95,p99,max}` |
+
+The report also attributes the single slowest callback to a section
+(`dequeue` / `drain` / `render`), so an over-budget callback says which stage
+paid rather than only that it happened.
+
+Latency histograms resolve 1 µs below 2.048 ms and 32 µs above that, up to
+67.552 ms; anything longer lands in an overflow bucket.
+
+**What it deliberately does not measure:** DAC conversion, amplifier,
+transducer, or acoustic propagation time. No number printed by
+`keyvibes stress` means "time from key press to sound at the ear". Add the
+hardware stages on top of the software path only.
+
+**Failure conditions — any one of these fails the gate:**
+
+- PipeWire XRUN count (the `ERR` column of `pw-top`) is unavailable or non-zero
+- any audio-callback deadline miss, late callback, or safety-budget overrun
+- any producer underrun (`no_buffer` / `empty_buffer`)
+- any PipeWire stream error or reconnect
+- zero frames rendered
+- callback maximum ≥ 50% of the measured quantum (the safety budget)
+- any dropped command, or no input-latency samples recorded
+
+**Real-time safety proofs.** The load test proves timing under load; two
+structural tests prove the properties an idle machine can never exercise:
+
+- `crates/kv-mixer/tests/rt_safety.rs` wraps 10 000 real
+  `Mixer::trigger` + `render_block` pairs in a counting
+  `#[global_allocator]` and asserts the allocation counter never moves
+  (including a control measurement that proves the counter counts).
+- `crates/kv-audio-pipewire/tests/rt_safety.rs` extracts `process_callback`
+  from `stream.rs` and fails on any lock, logging call, panic path, blocking
+  API, or I/O, then repeats the audit over every file the audio thread
+  reaches, asserting the single `eprintln!` in `stream.rs` stays inside the
+  control-plane-only helper.
+
 ## Future Optimizations
 
 - SIMD for batch mixing

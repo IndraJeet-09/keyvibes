@@ -1,0 +1,62 @@
+# Source manifest for the "Linear" pack.
+#
+# Same source audio as Default, but exactly **one** variant per key: the same
+# sound every press. That makes it structurally different (9 clips instead of
+# 18), which is what `keyvibes pack-switch-test` uses to prove a switch really
+# happened rather than just re-reading the same file.
+#
+# Build with:
+#   keyvibes pack build assets/soundpacks/default-src/linear.toml \
+#       -o assets/soundpacks/Linear.kvpack
+
+[pack]
+name = "Linear"
+author = "KeyVibes"
+version = "1.0.0"
+description = "Single-variant click pack: the same sound on every press."
+license = "MIT OR Apache-2.0"
+source = "keyvibes"
+sample_rate = 48000
+
+[samples]
+format = "wav"
+
+[processing]
+enabled = true
+dither_seed = 1337
+
+[[keys]]
+physical_key = "A"
+samples = ["sounds/a-0.wav"]
+
+[[keys]]
+physical_key = "S"
+samples = ["sounds/s-0.wav"]
+
+[[keys]]
+physical_key = "D"
+samples = ["sounds/d-0.wav"]
+
+[[keys]]
+physical_key = "F"
+samples = ["sounds/f-0.wav"]
+
+[[keys]]
+physical_key = "J"
+samples = ["sounds/j-0.wav"]
+
+[[keys]]
+physical_key = "K"
+samples = ["sounds/k-0.wav"]
+
+[[keys]]
+physical_key = "L"
+samples = ["sounds/l-0.wav"]
+
+[[keys]]
+physical_key = "Space"
+samples = ["sounds/space-0.wav"]
+
+[[keys]]
+physical_key = "Digit1"
+samples = ["sounds/digit1-0.wav"]

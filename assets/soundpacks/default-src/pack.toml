@@ -1,0 +1,57 @@
+# Source manifest for the pack KeyVibes uses out of the box.
+#
+# Build with:
+#   keyvibes pack build assets/soundpacks/default-src/pack.toml \
+#       -o assets/soundpacks/Default.kvpack
+
+[pack]
+name = "Default"
+author = "KeyVibes"
+version = "1.0.0"
+description = "Synthesized click pack covering the home row, space bar, and digit row."
+license = "MIT OR Apache-2.0"
+source = "keyvibes"
+sample_rate = 48000
+
+[samples]
+format = "wav"
+
+[processing]
+enabled = true
+dither_seed = 424242
+
+[[keys]]
+physical_key = "A"
+samples = ["sounds/a-0.wav", "sounds/a-1.wav"]
+
+[[keys]]
+physical_key = "S"
+samples = ["sounds/s-0.wav", "sounds/s-1.wav"]
+
+[[keys]]
+physical_key = "D"
+samples = ["sounds/d-0.wav", "sounds/d-1.wav"]
+
+[[keys]]
+physical_key = "F"
+samples = ["sounds/f-0.wav", "sounds/f-1.wav"]
+
+[[keys]]
+physical_key = "J"
+samples = ["sounds/j-0.wav", "sounds/j-1.wav"]
+
+[[keys]]
+physical_key = "K"
+samples = ["sounds/k-0.wav", "sounds/k-1.wav"]
+
+[[keys]]
+physical_key = "L"
+samples = ["sounds/l-0.wav", "sounds/l-1.wav"]
+
+[[keys]]
+physical_key = "Space"
+samples = ["sounds/space-0.wav", "sounds/space-1.wav"]
+
+[[keys]]
+physical_key = "Digit1"
+samples = ["sounds/digit1-0.wav", "sounds/digit1-1.wav"]

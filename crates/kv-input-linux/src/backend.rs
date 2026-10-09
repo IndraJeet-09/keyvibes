@@ -1,126 +1,122 @@
 //! Linux input backend coordinator.
 //!
-//! Manages keyboard discovery, hotplug, and the central input pipeline.
+//! Owns exactly two threads:
+//!
+//! * the **pipeline**, which reads every keyboard through `poll` and is the
+//!   single producer into the audio command queue,
+//! * the **hotplug monitor**, which tells the pipeline about devices that
+//!   appeared or vanished.
+//!
+//! There is deliberately no reader thread per keyboard. `SpscRing` is
+//! single-producer, so a thread-per-device design would let several threads
+//! race on the same `push`; multiplexing descriptors in one thread removes
+//! the violation and makes attach/detach a map operation instead of a thread
+//! lifecycle.
 
-use crate::device::KeyboardDevice;
 use crate::diagnostics::InputStats;
 use crate::discovery::discover_keyboards;
 use crate::error::InputError;
 use crate::hotplug::{HotplugEvent, HotplugMonitor};
-use kv_core::{PlayCommand, SoundSource};
+use crate::pipeline::{InputPipeline, PipelineCommand};
+use kv_core::{PlayCommand, SoundSource, StreamWake};
 use kv_ring::SpscRing;
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 /// The Linux input backend.
-///
-/// Manages:
-/// - Keyboard discovery (no hardcoded /dev/input/event0)
-/// - Multiple simultaneous keyboards
-/// - Hotplug detection
-/// - Event-to-PlayCommand conversion via the shared [`SoundSource`]
 pub struct LinuxInputBackend {
-    command_queue: Arc<SpscRing<PlayCommand>>,
+    pipeline: InputPipeline,
+    decisions: Arc<Mutex<HashSet<PathBuf>>>,
+    monitor_stop: Arc<AtomicBool>,
+    monitor_handle: Option<thread::JoinHandle<()>>,
     stats: Arc<InputStats>,
-    device_handles: Vec<thread::JoinHandle<()>>,
-    hotplug_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl LinuxInputBackend {
-    /// Creates a new Linux input backend.
+    /// Creates a new Linux input backend and attaches every keyboard found.
     ///
     /// # Arguments
     ///
-    /// * `command_queue` - Lock-free queue for PlayCommands
-    /// * `stats` - Statistics sink
-    /// * `source` - Shared sound source (pack player) used to build commands
+    /// * `command_queue` - lock-free queue for `PlayCommand`s; this backend
+    ///   is its only producer
+    /// * `stats` - statistics sink
+    /// * `source` - shared sound source used to build commands
+    /// * `wake` - optional hook that resumes a paused output stream just
+    ///   before a command is queued (idle power management)
+    ///
+    /// Zero readable keyboards is a valid state: the backend still comes up
+    /// so the hotplug monitor can attach a keyboard when one appears.
     ///
     /// # Errors
     ///
-    /// Returns `InputError` if no keyboards are found or initialization fails.
+    /// Returns `InputError` only when device enumeration itself fails. An
+    /// individual keyboard that cannot be opened is skipped and logged.
     pub fn new<S>(
         command_queue: Arc<SpscRing<PlayCommand>>,
         stats: Arc<InputStats>,
         source: Arc<S>,
+        wake: Option<Arc<dyn StreamWake>>,
     ) -> Result<Self, InputError>
     where
         S: SoundSource + Send + Sync + 'static,
     {
-        // Discover initial keyboards
+        // Enumeration failure is fatal; an empty list is not.
         let keyboards = discover_keyboards()?;
+        let decisions = Arc::new(Mutex::new(HashSet::new()));
 
-        if keyboards.is_empty() {
-            return Err(InputError::NoKeyboardsFound);
-        }
-
-        let mut device_handles = Vec::new();
-
-        // Open and spawn readers for each keyboard
-        for keyboard_info in keyboards {
-            match KeyboardDevice::open(keyboard_info.path, stats.clone()) {
-                Ok(device) => {
-                    let handle = device.spawn_reader(command_queue.clone(), source.clone());
-                    device_handles.push(handle);
-                    stats.increment_device_added();
-                }
-                Err(e) => {
-                    eprintln!("Failed to open keyboard: {}", e);
-                }
-            }
-        }
+        let pipeline = InputPipeline::start(
+            command_queue,
+            stats.clone(),
+            source,
+            keyboards,
+            decisions.clone(),
+            wake,
+        )?;
 
         Ok(Self {
-            command_queue,
+            pipeline,
+            decisions,
+            monitor_stop: Arc::new(AtomicBool::new(false)),
+            monitor_handle: None,
             stats,
-            device_handles,
-            hotplug_handle: None,
         })
     }
 
-    /// Enables hotplug detection.
-    pub fn enable_hotplug<S>(&mut self, source: Arc<S>) -> Result<(), InputError>
-    where
-        S: SoundSource + Send + Sync + 'static,
-    {
-        let queue = self.command_queue.clone();
-        let stats = self.stats.clone();
+    /// Starts watching for keyboards appearing and disappearing.
+    ///
+    /// Best effort: losing hotplug must not stop playback, so a failure here
+    /// leaves the already-attached keyboards working.
+    pub fn enable_hotplug(&mut self) -> Result<(), InputError> {
+        if self.monitor_handle.is_some() {
+            return Ok(());
+        }
 
-        let mut monitor = HotplugMonitor::default();
-        monitor.initialize()?;
-
-        let handle = monitor.spawn_monitor(move |event| {
-            match event {
-                HotplugEvent::Added(info) => {
-                    eprintln!("Keyboard added: {} ({})", info.name, info.path.display());
-                    match KeyboardDevice::open(info.path, stats.clone()) {
-                        Ok(device) => {
-                            let _handle = device.spawn_reader(queue.clone(), source.clone());
-                            stats.increment_device_added();
-                            // Note: Handle is dropped, which stops the thread
-                            // In production, we'd track these handles
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to open new keyboard: {}", e);
-                        }
-                    }
-                }
-                HotplugEvent::Removed(path) => {
-                    eprintln!("Keyboard removed: {}", path.display());
-                    stats.increment_device_removed();
-                }
-            }
+        let monitor = HotplugMonitor::new(Duration::from_secs(1), self.decisions.clone());
+        let commands = self.pipeline.command_port();
+        let handle = monitor.spawn_monitor(self.monitor_stop.clone(), move |event| match event {
+            HotplugEvent::Added(info) => commands.send(PipelineCommand::Attach(info)),
+            HotplugEvent::Removed(path) => commands.send(PipelineCommand::Detach(path)),
         });
 
-        self.hotplug_handle = Some(handle);
+        self.monitor_handle = Some(handle);
         Ok(())
     }
 
-    /// Number of keyboard reader threads currently tracked.
+    /// Number of keyboards the pipeline currently has attached.
     pub fn device_count(&self) -> usize {
-        self.device_handles.len()
+        self.pipeline.attached_count()
     }
 
-    /// Gets statistics snapshot.
+    /// Whether the pipeline thread is still running.
+    pub fn is_running(&self) -> bool {
+        self.pipeline.is_running()
+    }
+
+    /// Gets a statistics snapshot.
     pub fn get_stats(&self) -> crate::diagnostics::InputStatsSnapshot {
         self.stats.snapshot()
     }
@@ -128,8 +124,12 @@ impl LinuxInputBackend {
 
 impl Drop for LinuxInputBackend {
     fn drop(&mut self) {
-        // In a real implementation, we'd signal threads to stop gracefully
-        // For now, threads will be terminated when handles drop
+        self.monitor_stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.monitor_handle.take() {
+            let _ = handle.join();
+        }
+        // `pipeline` stops itself when its own `Drop` runs, immediately after
+        // this body: it wakes within one poll timeout and exits cleanly.
     }
 }
 
@@ -148,22 +148,25 @@ mod tests {
     }
 
     #[test]
-    fn test_backend_creation_no_keyboards() {
+    fn test_backend_creation_allows_zero_keyboards() {
         let queue = Arc::new(SpscRing::with_capacity(256));
         let stats = Arc::new(InputStats::new());
         let source = Arc::new(SilentSource);
 
-        // This will fail if no keyboards are present (expected in most test environments)
-        match LinuxInputBackend::new(queue, stats, source) {
+        // Enumeration failure is the only error; an empty system is fine
+        // because the hotplug monitor will attach keyboards later.
+        match LinuxInputBackend::new(queue, stats, source, None) {
             Ok(backend) => {
-                // On a system with keyboards, this succeeds
-                assert!(backend.device_count() > 0);
+                println!("keyboards visible: {}", backend.device_count());
+                // Dropping must tear the threads down without hanging.
+                drop(backend);
             }
             Err(InputError::NoKeyboardsFound) => {
-                // Expected in test environments
+                panic!("NoKeyboardsFound must no longer be returned by new()");
             }
             Err(e) => {
-                eprintln!("Unexpected error: {}", e);
+                // Enumeration can legitimately fail in sandboxed test runners.
+                println!("enumeration failed (expected in sandbox): {e}");
             }
         }
     }

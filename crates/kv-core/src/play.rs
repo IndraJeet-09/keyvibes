@@ -85,6 +85,12 @@ pub struct PlayCommand {
 
     /// Whether this is a release sound.
     pub release: bool,
+
+    /// CLOCK_MONOTONIC nanoseconds at which the command was queued.
+    ///
+    /// Used only for latency accounting on the consumer side; `0` means
+    /// "not stamped". Never read or written by the mixer.
+    pub enqueued_ns: u64,
 }
 
 // SAFETY: PlayCommand is Copy and contains only primitive types and a raw pointer.
@@ -117,7 +123,15 @@ impl PlayCommand {
             left_gain,
             right_gain,
             release,
+            enqueued_ns: 0,
         }
+    }
+
+    /// Stamps the command with the monotonic time it entered the queue.
+    #[inline]
+    pub fn stamped(mut self, enqueued_ns: u64) -> Self {
+        self.enqueued_ns = enqueued_ns;
+        self
     }
 }
 
@@ -135,6 +149,19 @@ impl PlayCommand {
 pub trait SoundSource {
     /// Builds the command for `key`, or `None` if the key has no sound.
     fn play(&self, key: PhysicalKey, state: &mut VariantState) -> Option<PlayCommand>;
+
+    /// Called once a command returned by [`play`](Self::play) has been
+    /// handed to the audio queue - or dropped because the queue was full.
+    ///
+    /// A source that hands out pointers into a buffer which can be swapped
+    /// out while the engine runs takes a hold in `play` and releases it
+    /// here, so the buffer is never unmapped while a command still points
+    /// into it. The default implementation does nothing.
+    ///
+    /// Callers must invoke this for **every** `Some` returned by `play`,
+    /// after the push attempt completes, on both the success and the
+    /// failure path.
+    fn queued(&self, _command: PlayCommand) {}
 }
 
 impl std::fmt::Debug for PlayCommand {

@@ -271,6 +271,7 @@ impl KvPack {
             left_gain,
             right_gain,
             release: false,
+            enqueued_ns: 0,
         })
     }
 }

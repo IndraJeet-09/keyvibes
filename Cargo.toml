@@ -32,7 +32,7 @@ kv-runtime = { path = "crates/kv-runtime" }
 
 # External dependencies
 evdev = "0.13"
-pipewire = "0.10"
+pipewire = { version = "0.10", features = ["v0_3_49"] }
 memmap2 = "0.9"
 clap = { version = "4.5", features = ["derive"] }
 thiserror = "1.0"

@@ -1,0 +1,28 @@
+[Unit]
+Description=KeyVibes keyboard sound engine
+Documentation=file:@PREFIX@/share/doc/keyvibes/install.md
+# PipeWire has to be running before the engine can render anything, and
+# stopping it is what makes `Restart=on-failure` useful rather than noisy.
+After=pipewire.service pipewire-pulse.service wireplumber.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+# The binary path is filled in by `make install`, so the unit works from any
+# prefix without the user editing it.
+ExecStart=@BINDIR@/keyvibes run
+Restart=on-failure
+RestartSec=2
+
+# The engine needs no privilege: it reads /dev/input as a normal user (see
+# docs/install.md) and talks to the session's PipeWire socket. Everything
+# below just stops a mistake from turning into a privileged one.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+
+[Install]
+WantedBy=default.target

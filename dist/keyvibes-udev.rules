@@ -1,0 +1,14 @@
+# Optional. Not needed if you are in the `input` group - which is the
+# simpler, more common setup, and what docs/install.md recommends.
+#
+# This rule gives local seat users read access to keyboards through logind's
+# ACLs instead of through group membership. Install it only if you would
+# rather not add users to `input`:
+#
+#   sudo install -Dm644 dist/keyvibes-udev.rules /etc/udev/rules.d/70-keyvibes-uaccess.rules
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# It grants nothing to remote sessions, containers, or users without an
+# active seat - exactly the property that makes it preferable to a blanket
+# group change when it applies to you.
+SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess"

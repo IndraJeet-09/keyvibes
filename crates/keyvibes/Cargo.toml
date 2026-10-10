@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 kv-core.workspace = true
 kv-ring.workspace = true
+kv-mixer.workspace = true
 kv-runtime.workspace = true
 kv-pack.workspace = true
 kv-input-linux.workspace = true

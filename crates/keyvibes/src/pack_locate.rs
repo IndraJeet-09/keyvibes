@@ -126,9 +126,18 @@ pub fn resolve_selector(selector: &str) -> Result<PathBuf> {
     }
 
     let available = available_names();
+    if available.is_empty() {
+        bail!(
+            "pack not found: {trimmed}\n  no sound pack is installed, so there \
+             is nothing to match it against\n  fix: build one -\n    \
+             `keyvibes pack build <pack.toml> -o <pack.kvpack>`\n  or pass \
+             --pack <path to a .kvpack>"
+        );
+    }
     bail!(
         "pack not found: {trimmed}\n  searched for a file at that path and \
-         for a pack name among:\n{}",
+         for a pack name among:\n{}\n  fix: pass --pack <one of those names>, \
+         or set `pack = \"...\"` in the config",
         available.join("\n")
     )
 }
@@ -147,11 +156,21 @@ fn no_pack_message() -> String {
         .iter()
         .map(|dir| format!("  {}", dir.display()))
         .collect();
-    format!(
-        "no .kvpack found; searched:\n{}\n\
-         install a pack, set $KEYVIBES_PACK, or pass --pack <path>",
-        dirs.join("\n")
-    )
+    let searched = dirs.join("\n");
+    if discover().is_empty() {
+        format!(
+            "no sound pack is installed; searched:\n{searched}\n\
+             fix: build one -\n  `keyvibes pack build <pack.toml> -o <pack.kvpack>`\n\
+             or point $KEYVIBES_PACK at a .kvpack you already have"
+        )
+    } else {
+        format!(
+            "no .kvpack matched; searched:\n{searched}\n\
+             installed packs: {}\n\
+             fix: pass --pack <name-or-path>, or set `pack = \"...\"` in the config",
+            available_names().join(", ")
+        )
+    }
 }
 
 #[cfg(test)]

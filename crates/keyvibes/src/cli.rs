@@ -1,11 +1,29 @@
 //! Command-line interface.
+//!
+//! The surface is two things in one list, kept apart by order rather than by
+//! a flag:
+//!
+//! * **product commands** come first - `run`, `doctor`, `config`,
+//!   `input-test`, `analyze`, `process`, `stress`, `benchmark`,
+//!   `pack ...`. These are what a KeyVibes user reaches for, and their
+//!   wording stays in the user's vocabulary.
+//! * **verification commands** come after, and all of them are named
+//!   `*-test`. They are the per-phase acceptance checks, and they are the
+//!   ones that talk about XRUNs and device state machines.
+//!
+//! A bare `keyvibes` is `keyvibes run`: the program's whole job is to make
+//! sound, so the no-argument case does that rather than printing a page of
+//! text.
+//!
+//! `keyvibes cli-test` walks this interface and fails if any advertised
+//! command stops answering its own `--help`.
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "keyvibes")]
-#[command(about = "Linux native low-latency keyboard sound engine", long_about = None)]
+#[command(about = "Make your keyboard sound like a mechanical keyboard", long_about = None)]
 #[command(version)]
 pub struct Cli {
     /// Enable verbose logging
@@ -19,27 +37,17 @@ pub struct Cli {
     #[arg(long = "pack", global = true)]
     pub sound_pack: Option<String>,
 
-    /// Run subsystem diagnostics (PipeWire + keyboard capture)
-    #[arg(long)]
-    pub diagnostics: bool,
-
-    /// List available keyboards
-    #[arg(long)]
-    pub list_keyboards: bool,
-
     #[command(subcommand)]
     pub command: Option<Command>,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Build, validate, and inspect .kvpack sound packs
-    Pack {
-        #[command(subcommand)]
-        action: PackAction,
-    },
-
-    /// Load a pack and play keyboard sounds
+    /// Play keyboard sounds (what a bare `keyvibes` does)
+    ///
+    /// Loads a pack, reads the keyboard, and renders a voice per press until
+    /// interrupted. Needs a readable keyboard and a running PipeWire session;
+    /// `keyvibes doctor` reports either of those before you try.
     Run {
         /// Audio output sample rate
         #[arg(long, default_value_t = 48000)]
@@ -57,7 +65,53 @@ pub enum Command {
         duration: u64,
     },
 
-    /// Measure real-time latency under sustained load and fail on any XRUN
+    /// Check this machine is ready, and say what to do about it if not
+    ///
+    /// Prints version, OS, kernel, input, audio, packs and runtime state as
+    /// one fixed block of fields, so two runs can be compared. Every problem
+    /// is listed with what is wrong, why KeyVibes thinks so, and the command
+    /// that fixes it. Exits 0 when nothing the engine needs is missing, 1 when
+    /// something is.
+    Doctor,
+
+    /// Show or create the configuration file
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+
+    /// List the keyboards KeyVibes can hear, then capture presses for a while
+    InputTest {
+        /// Capture duration in seconds
+        #[arg(short = 't', long, default_value_t = 10)]
+        seconds: u64,
+    },
+
+    /// Analyze source audio without writing anything
+    ///
+    /// Accepts WAV files (analyzed with default processing settings) or a
+    /// pack.toml manifest (analyzed with its own `[processing]` section, so
+    /// the report shows exactly what `pack build` would do).
+    Analyze {
+        /// WAV files or a pack.toml manifest
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+    },
+
+    /// Process one WAV through the audio pipeline and write the result
+    ///
+    /// Applies DC correction, trim, fade, loudness normalization, peak
+    /// protection, and dithered quantization; writes a 16-bit mono PCM WAV.
+    Process {
+        /// Input WAV file
+        input: PathBuf,
+
+        /// Output WAV path
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+
+    /// Measure end-to-end latency under load and fail on any XRUN
     ///
     /// Reports software / audio-engine latency only: it does not measure the
     /// DAC, amplifier, transducer, or acoustic path.
@@ -75,13 +129,24 @@ pub enum Command {
         keys_per_second: f64,
     },
 
-    /// Discover keyboards and capture key presses for a few seconds
-    InputTest {
-        /// Capture duration in seconds
-        #[arg(short = 't', long, default_value_t = 10)]
-        seconds: u64,
+    /// Measure the engine and fail when it leaves its budget
+    ///
+    /// Times the lock-free command queue, a 32-voice mixer block against the
+    /// wall-clock length of that block, a key press from lookup to queued
+    /// command, and the sound pack lookup itself - then counts heap
+    /// allocations during each with the binary's own allocator, and checks
+    /// that repeatedly opening a pack does not grow resident memory.
+    Benchmark,
+
+    /// Build, validate, and inspect .kvpack sound packs
+    Pack {
+        #[command(subcommand)]
+        action: PackAction,
     },
 
+    // ------------------------------------------------- verification commands
+    // The per-phase acceptance checks, all named `*-test` and all listed last
+    // so the product is what a reader sees first.
     /// Verify that input survives keyboards being removed and reconnected
     ///
     /// Always runs a deterministic walk of the exact device state machine the
@@ -142,8 +207,8 @@ pub enum Command {
     /// Prove installed sound packs are discovered, selected, and playable
     ///
     /// Checks `pack list`, selection by name (case-insensitively), by file
-    /// stem, and by path, the `--pack` / config / default precedence, that the
-    /// global `--pack` flag parses on either side of the subcommand, and -
+    /// stem, and by path, the `--pack` / config / default precedence, that
+    /// the global `--pack` flag parses on either side of the subcommand, and -
     /// when a PipeWire session is reachable - that every installed pack
     /// renders sound.
     PackTest,
@@ -154,28 +219,61 @@ pub enum Command {
     /// `~/.config/keyvibes/config.toml` is never touched.
     ConfigTest,
 
-    /// Analyze source audio without writing anything
+    /// Prove KeyVibes never stores, logs, sends, grabs, or injects a key
     ///
-    /// Accepts WAV files (analyzed with default processing settings) or a
-    /// pack.toml manifest (analyzed with its own `[processing]` section, so
-    /// the report shows exactly what `pack build` would do).
-    Analyze {
-        /// WAV files or a pack.toml manifest
-        #[arg(required = true)]
-        sources: Vec<PathBuf>,
+    /// Audits every production source file (comments and test modules
+    /// stripped) for a network client, a file write outside the config
+    /// writer, a key-formatting site, a grab or injection ioctl, a
+    /// privilege call, and a device outside `/dev/input`; checks the
+    /// dependency graph for network and logging crates; then proves in
+    /// process that pack paths cannot traverse the filesystem and that a
+    /// corrupt pack fails with an error instead of a panic.
+    SecurityTest,
+
+    /// Prove every failure is actionable and nothing panics
+    ///
+    /// Runs this binary as a child process under a broken configuration, an
+    /// empty pack directory, an unknown `--pack`, and missing files, and
+    /// checks that each message names what failed, why, and how to fix it -
+    /// never a panic, a stack trace, or a bare errno.
+    DoctorTest,
+
+    /// Prove the command-line interface itself is complete and coherent
+    ///
+    /// Walks every command this binary advertises, asks each one for its own
+    /// help, and fails if any advertised command is missing, exits non-zero,
+    /// or prints nothing - the check that keeps `keyvibes --help` honest.
+    CliTest,
+
+    /// Run for a long time and report anything that drifted
+    ///
+    /// Cycles through rapid typing, bursts, sustained chords, idle-to-active
+    /// transitions and pack swaps under load, while a watchdog records
+    /// panics, wedges, missed deadlines, XRUNs, resident-memory growth,
+    /// thread growth and a stream that silently reconnected. Hardware-dependent
+    /// steps are reported `NOT RUN` when this host has no such hardware.
+    SoakTest {
+        /// How long to run: `30m`, `45s` or `2h`
+        #[arg(long, default_value = "30m")]
+        duration: String,
     },
+}
 
-    /// Process one WAV through the audio pipeline and write the result
+#[derive(Subcommand, Debug)]
+pub enum ConfigAction {
+    /// Print the effective settings and where each one came from
+    Show,
+
+    /// Print the path of the configuration file
     ///
-    /// Applies DC correction, trim, fade, loudness normalization, peak
-    /// protection, and dithered quantization; writes a 16-bit mono PCM WAV.
-    Process {
-        /// Input WAV file
-        input: PathBuf,
+    /// Followed by whether that file exists, so a script can branch on it.
+    Path,
 
-        /// Output WAV path
-        #[arg(short, long)]
-        output: PathBuf,
+    /// Write the default configuration file
+    Init {
+        /// Replace an existing file instead of leaving it alone
+        #[arg(long)]
+        force: bool,
     },
 }
 

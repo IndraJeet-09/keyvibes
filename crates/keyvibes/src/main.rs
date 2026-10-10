@@ -2,11 +2,10 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use kv_audio_pipewire::PipeWireStream;
 use kv_core::{PhysicalKey, PlayCommand, SoundSource, VariantState};
 use kv_input_linux::diagnostics::InputStats;
-use kv_input_linux::error::InputError;
-use kv_input_linux::{discovery::discover_keyboards, LinuxInputBackend};
+use kv_input_linux::discovery::discover_keyboards;
+use kv_input_linux::LinuxInputBackend;
 use kv_pack::KvPack;
 use kv_ring::SpscRing;
 use kv_runtime::{InputStart, Runtime};
@@ -15,32 +14,34 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod accept;
+mod alloc_probe;
 mod audio_cmd;
 mod audio_recovery_test;
+mod bench;
 mod cli;
+mod cli_test;
 mod compat_test;
 mod config;
 mod config_test;
-mod diagnostics;
+mod doctor;
+mod doctor_test;
 mod hotplug_test;
 mod idle_test;
 mod pack_locate;
 mod pack_switch_test;
 mod pack_test;
+mod procfs;
+mod security_test;
+mod soak_test;
 mod stress;
 
-use cli::{Cli, Command, PackAction};
+use cli::{Cli, Command, ConfigAction, PackAction};
 use config::Config;
-use diagnostics::Diagnostics;
 
-/// Sound source used by diagnostics: captures keys but plays nothing.
-struct SilentSource;
-
-impl SoundSource for SilentSource {
-    fn play(&self, _key: PhysicalKey, _state: &mut VariantState) -> Option<PlayCommand> {
-        None
-    }
-}
+/// Every heap allocation this process makes is counted, so the benchmark
+/// can prove the real-time path never makes one.
+#[global_allocator]
+static ALLOCATOR: alloc_probe::Counting = alloc_probe::Counting;
 
 /// Silent buffer handed to the command queue during `input-test`. Nothing
 /// renders it: the queue has no consumer in that mode, so the counters climb
@@ -73,14 +74,6 @@ impl SoundSource for EventProbe {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-
-    if cli.list_keyboards {
-        return list_keyboards();
-    }
-
-    if cli.diagnostics {
-        return run_diagnostics();
-    }
 
     match cli.command {
         Some(Command::Pack { action }) => match action {
@@ -137,19 +130,46 @@ fn main() -> Result<()> {
         Some(Command::PackSwitchTest) => pack_switch_test::run(),
         Some(Command::CompatibilityTest) => compat_test::run(),
         Some(Command::PackTest) => pack_test::run(),
+        Some(Command::Benchmark) => bench::run(cli.sound_pack.as_deref()),
+        Some(Command::SoakTest { duration }) => {
+            let duration = soak_test::parse_duration(&duration)?;
+            let (_path, config) = load_config()?;
+            soak_test::run(soak_test::SoakOptions {
+                duration,
+                pack: Some(select_pack(cli.sound_pack.as_deref(), &config)?),
+                rate: 48_000,
+                settings: config.settings(),
+                output_device: config.output_device.clone(),
+            })
+        }
+        Some(Command::DoctorTest) => doctor_test::run(),
+        Some(Command::Doctor) => doctor::run(cli.sound_pack.as_deref()),
+        Some(Command::Config { action }) => match action {
+            ConfigAction::Show => config_show(),
+            ConfigAction::Path => config_path(),
+            ConfigAction::Init { force } => config_init(force),
+        },
+        Some(Command::CliTest) => cli_test::run(),
+        Some(Command::SecurityTest) => security_test::run(),
         Some(Command::ConfigTest) => config_test::run(),
         Some(Command::Analyze { sources }) => audio_cmd::analyze(&sources),
         Some(Command::Process { input, output }) => audio_cmd::process(&input, &output),
-        None => {
-            println!("KeyVibes v{}", env!("CARGO_PKG_VERSION"));
-            println!("Run with --help to see available commands.");
-            Ok(())
-        }
+        // A bare `keyvibes` is `keyvibes run`: the program exists to make
+        // sound, so the no-argument case does that.
+        None => run_engine(cli.sound_pack.as_deref(), 48_000, false, 0, cli.verbose),
     }
 }
 
 /// `keyvibes pack build <manifest> -o <output>`
 fn build_pack(manifest: &Path, output: &Path, verbose: bool) -> Result<()> {
+    if !manifest.is_file() {
+        anyhow::bail!(
+            "no manifest at {}\n  a pack manifest is a TOML file - start from \
+             `assets/soundpacks/default-src/pack.toml` and pass its path as the \
+             first argument",
+            manifest.display()
+        );
+    }
     println!("Building {}", manifest.display());
 
     let report = kv_pack::build_from_manifest(manifest, output, |event| match event {
@@ -198,10 +218,31 @@ fn build_pack(manifest: &Path, output: &Path, verbose: bool) -> Result<()> {
     Ok(())
 }
 
+/// Rejects an argument that is not a readable file, before any pack code
+/// touches it, so the message can say where to look instead of repeating an
+/// OS errno.
+fn require_pack_file(path: &Path) -> Result<()> {
+    if path.is_dir() {
+        anyhow::bail!(
+            "{} is a directory, not a sound pack\n  fix: point at a `.kvpack` \
+             file - `keyvibes pack list` shows the installed ones",
+            path.display()
+        );
+    }
+    if !path.exists() {
+        anyhow::bail!(
+            "no file at {}\n  fix: check the path, or use `--pack <name>` for \
+             an installed pack - `keyvibes pack list` shows them",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 /// `keyvibes pack validate <pack>`
 fn validate_pack(path: &Path) -> Result<()> {
-    let pack =
-        KvPack::open(path).with_context(|| format!("failed to validate {}", path.display()))?;
+    require_pack_file(path)?;
+    let pack = KvPack::open(path).with_context(|| format!("failed to read {}", path.display()))?;
 
     let stats = pack.stats();
     println!("{}: OK", path.display());
@@ -219,7 +260,8 @@ fn validate_pack(path: &Path) -> Result<()> {
 
 /// `keyvibes pack inspect <pack> [--clips]`
 fn inspect_pack(path: &Path, show_clips: bool) -> Result<()> {
-    let pack = KvPack::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+    require_pack_file(path)?;
+    let pack = KvPack::open(path).with_context(|| format!("failed to read {}", path.display()))?;
 
     let header = pack.header();
     let meta = pack.metadata();
@@ -493,20 +535,116 @@ fn list_packs(verbose: bool) -> Result<()> {
     Ok(())
 }
 
-/// `keyvibes --list-keyboards`
-fn list_keyboards() -> Result<()> {
-    let keyboards = discover_keyboards()?;
+/// `keyvibes config path`
+///
+/// Prints one line and nothing else, so a script can capture it.
+fn config_path() -> Result<()> {
+    let path = Config::default_path().context("cannot resolve a configuration path")?;
+    println!("{}", path.display());
+    Ok(())
+}
 
-    if keyboards.is_empty() {
-        println!("No keyboards found.");
-        return Ok(());
+/// `keyvibes config show`
+fn config_show() -> Result<()> {
+    let path = Config::default_path().context("cannot resolve a configuration path")?;
+    let on_disk = read_config_table(&path)?;
+    let config = Config::load(&path)?;
+
+    println!("configuration file: {}", path.display());
+    match &on_disk {
+        Some(_) => println!("  in use"),
+        None => println!("  missing - every value below is a default"),
     }
 
-    println!("{} keyboard(s):", keyboards.len());
-    for keyboard in keyboards {
-        println!("  {} ({})", keyboard.name, keyboard.path.display());
+    // A value is "file" only when the key is actually present: an explicit
+    // `enabled = true` and an absent `enabled` both end up true, but only one
+    // of them is the user's doing.
+    let origin = |key: &str| match &on_disk {
+        Some(table) if table.contains_key(key) => "file",
+        _ => "default",
+    };
+
+    let rows: [(&str, String, &str); 9] = [
+        ("enabled", config.enabled.to_string(), "enabled"),
+        ("pack", display_option(&config.pack), "pack"),
+        (
+            "output_device",
+            display_option(&config.output_device),
+            "output_device",
+        ),
+        ("volume", format!("{}", config.volume), "volume"),
+        (
+            "pitch_variation",
+            config.pitch_variation.to_string(),
+            "pitch_variation",
+        ),
+        (
+            "gain_variation",
+            config.gain_variation.to_string(),
+            "gain_variation",
+        ),
+        (
+            "release_sounds",
+            config.release_sounds.to_string(),
+            "release_sounds",
+        ),
+        (
+            "spatial_audio",
+            config.spatial_audio.to_string(),
+            "spatial_audio",
+        ),
+        ("version", config.version.to_string(), "version"),
+    ];
+
+    println!();
+    for (label, value, key) in rows {
+        println!("{label:<16}= {value:<10} ({})", origin(key));
     }
     Ok(())
+}
+
+/// `keyvibes config init [--force]`
+fn config_init(force: bool) -> Result<()> {
+    let path = Config::default_path().context("cannot resolve a configuration path")?;
+    if path.exists() && !force {
+        anyhow::bail!(
+            "{} already exists\n  why:  it may contain settings you wrote\n  fix:  \
+             edit it directly, or pass --force to replace it with the defaults",
+            path.display()
+        );
+    }
+
+    Config::default()
+        .save(&path)
+        .with_context(|| format!("cannot write {}", path.display()))?;
+
+    println!("wrote {}", path.display());
+    println!("  edit it, then run `keyvibes doctor` to check the result");
+    Ok(())
+}
+
+/// The configuration file as the user wrote it, or `None` when there is none.
+///
+/// Kept separate from [`Config::load`] so `config show` can tell a key the
+/// user set from one that merely has its default value.
+fn read_config_table(path: &Path) -> Result<Option<toml::Table>> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
+    };
+    let table = text
+        .parse::<toml::Table>()
+        .with_context(|| format!("{} is not valid TOML", path.display()))?;
+    Ok(Some(table))
+}
+
+/// `Some`/`None` rendered the way the configuration file spells it.
+fn display_option(value: &Option<String>) -> String {
+    match value {
+        Some(value) => value.clone(),
+        None => "unset".to_string(),
+    }
 }
 
 /// `keyvibes input-test [--verbose] [-t <seconds>]`
@@ -544,46 +682,5 @@ fn input_test(seconds: u64, verbose: bool) -> Result<()> {
     let snapshot = stats.snapshot();
     println!("{}", snapshot.format());
     println!("Devices tracked: {}", backend.device_count());
-    Ok(())
-}
-
-/// `keyvibes --diagnostics`
-fn run_diagnostics() -> Result<()> {
-    println!("KeyVibes diagnostics");
-
-    // Audio backend: connect a throwaway stream and report the result.
-    let audio_queue: Arc<SpscRing<PlayCommand>> = Arc::new(SpscRing::with_capacity(256));
-    match PipeWireStream::new(48000, audio_queue) {
-        Ok(stream) => {
-            let stats = stream.get_stats();
-            println!(
-                "  PipeWire:    connected (frames={}, callbacks={})",
-                stats.frames_rendered, stats.callbacks
-            );
-        }
-        Err(e) => println!("  PipeWire:    unavailable - {e}"),
-    }
-
-    // Input backend: start a brief capture session with a silent source so
-    // discovery, device open, and the pipeline thread are all exercised.
-    let input_stats = Arc::new(InputStats::new());
-    let input_queue: Arc<SpscRing<PlayCommand>> = Arc::new(SpscRing::with_capacity(256));
-    let source = Arc::new(SilentSource);
-
-    match LinuxInputBackend::new(input_queue, input_stats.clone(), source, None) {
-        Ok(mut backend) => {
-            println!("  Keyboards:   {} device(s)", backend.device_count());
-            if let Err(e) = backend.enable_hotplug() {
-                println!("  Hotplug:     unavailable - {e}");
-            }
-            // Let the pipeline spin up and process any pending events.
-            std::thread::sleep(Duration::from_millis(250));
-        }
-        Err(InputError::NoKeyboardsFound) => println!("  Keyboards:   none found"),
-        Err(e) => println!("  Keyboards:   error - {e}"),
-    }
-
-    let diagnostics = Diagnostics::from_stats(&input_stats.snapshot());
-    println!("{}", diagnostics.report());
     Ok(())
 }

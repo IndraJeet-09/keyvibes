@@ -124,6 +124,13 @@ pub struct Config {
     /// `None` means the session manager's default sink.
     pub output_device: Option<String>,
     /// Master volume, linear, `0.0 ..= 1.0`.
+    ///
+    /// TOML has no `f32`, so this is written through [`volume_to_toml`]:
+    /// `volume = 0.7` in the file, not `0.699999988079071`.
+    #[serde(
+        serialize_with = "volume_to_toml",
+        deserialize_with = "volume_from_toml"
+    )]
     pub volume: f32,
     /// Randomise pitch per press.
     pub pitch_variation: bool,
@@ -302,4 +309,24 @@ impl Config {
             spatial_audio_enabled: self.spatial_audio,
         }
     }
+}
+
+/// Writes `f32` volume as the shortest decimal that still means it.
+///
+/// TOML only has `f64`, and widening `0.7f32` directly produces
+/// `0.699999988079071` in the user's file. Rust's `{:?}` formatting of an
+/// `f32` is the shortest string that parses back to the same bits, so
+/// round-tripping through that keeps `volume = 0.7` readable and exact.
+fn volume_to_toml<S: serde::Serializer>(value: &f32, serializer: S) -> Result<S::Ok, S::Error> {
+    let text = format!("{value:?}");
+    let widened: f64 = text.parse().map_err(|error| {
+        serde::ser::Error::custom(format!("volume {value} cannot be stored: {error}"))
+    })?;
+    serializer.serialize_f64(widened)
+}
+
+/// Reads volume from TOML, tolerating either spelling of a float.
+fn volume_from_toml<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<f32, D::Error> {
+    let value = f64::deserialize(deserializer)?;
+    Ok(value as f32)
 }

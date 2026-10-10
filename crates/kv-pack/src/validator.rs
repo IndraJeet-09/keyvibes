@@ -38,6 +38,16 @@ pub fn validate_full(
 
     // Validate clip sample regions
     for (i, clip) in clip_entries.iter().enumerate() {
+        // Sample offset must be even: clips are indexed as `i16` slices, and
+        // an odd byte offset would hand the mixer an unaligned pointer.
+        if clip.sample_offset % std::mem::size_of::<i16>() as u64 != 0 {
+            return Err(PackError::InvalidAlignment {
+                field: "clip.sample_offset",
+                offset: clip.sample_offset,
+                alignment: std::mem::size_of::<i16>() as u64,
+            });
+        }
+
         // Sample offset within region
         if clip.sample_offset >= header.sample_data_size {
             return Err(PackError::ClipOffsetOutOfBounds {

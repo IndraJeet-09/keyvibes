@@ -10,6 +10,25 @@ use memmap2::Mmap;
 use std::fs::File;
 use std::path::Path;
 
+/// Bounds-checked view of a byte range inside the memory mapping.
+///
+/// Every offset and length comes from an attacker-controlled file header, so
+/// nothing is ever sliced without going through this first. It rejects
+/// overflow, values that do not fit a `usize`, and ranges past the end of the
+/// mapping, returning a structured error instead of panicking.
+fn region<'a>(data: &'a [u8], field: &'static str, offset: u64, size: u64) -> PackResult<&'a [u8]> {
+    let end = offset.checked_add(size).ok_or(PackError::IntegerOverflow)?;
+    let start = usize::try_from(offset).map_err(|_| PackError::IntegerOverflow)?;
+    let end = usize::try_from(end).map_err(|_| PackError::IntegerOverflow)?;
+    if end > data.len() {
+        return Err(PackError::InvalidLength {
+            field,
+            length: size,
+        });
+    }
+    Ok(&data[start..end])
+}
+
 /// A loaded, validated, immutable KVPack.
 ///
 /// The pack owns the memory mapping and provides safe access to samples.
@@ -65,17 +84,35 @@ impl KvPack {
         // Memory-map the file (read-only)
         let mmap = unsafe { Mmap::map(&file)? };
 
+        // The mapping must cover exactly the file we sized. A file that
+        // shrank between `metadata()` and `Mmap::map` would otherwise let the
+        // validated regions below run off the end of the mapping.
+        if mmap.len() as u64 != file_size {
+            return Err(PackError::FileTruncated {
+                expected: file_size,
+                actual: mmap.len() as u64,
+            });
+        }
+
         // Validate header
         let header = Header::parse(&mmap[..], file_size)?;
 
         // Extract key table
-        let key_data = &mmap[header.key_table_offset as usize
-            ..(header.key_table_offset as usize + header.key_table_size as usize)];
+        let key_data = region(
+            &mmap,
+            "key_table",
+            header.key_table_offset,
+            header.key_table_size as u64,
+        )?;
         let keys = parser::parse_key_table(key_data, header.key_count)?;
 
         // Extract clip table
-        let clip_data = &mmap[header.clip_table_offset as usize
-            ..(header.clip_table_offset as usize + header.clip_table_size as usize)];
+        let clip_data = region(
+            &mmap,
+            "clip_table",
+            header.clip_table_offset,
+            header.clip_table_size as u64,
+        )?;
         let clips = parser::parse_clip_table(clip_data, header.clip_count)?;
 
         // Full validation of relationships
@@ -87,29 +124,29 @@ impl KvPack {
         let metadata = if header.metadata_size == 0 {
             crate::parser::Metadata::default()
         } else {
-            let metadata_bytes = &mmap[header.metadata_offset as usize
-                ..(header.metadata_offset as usize + header.metadata_size as usize)];
+            let metadata_bytes = region(
+                &mmap,
+                "metadata",
+                header.metadata_offset,
+                header.metadata_size as u64,
+            )?;
             parser::parse_metadata(metadata_bytes, header.metadata_size)?
         };
 
-        // Create sample slice (zero-copy into mmap)
-        let sample_offset = header.sample_data_offset as usize;
-        let sample_size = header.sample_data_size as usize;
-
-        // Validate sample data region is within mmap
-        if sample_offset + sample_size > mmap.len() {
-            return Err(PackError::InvalidLength {
-                field: "sample_data",
-                length: (sample_offset + sample_size) as u64,
-            });
-        }
-
-        // Create i16 slice (little-endian is native on little-endian systems)
-        let sample_bytes = &mmap[sample_offset..sample_offset + sample_size];
+        // Create sample slice (zero-copy into mmap).
+        //
+        // The header guarantees `sample_data_offset % 16 == 0`, so the cast
+        // below always produces an aligned `i16` pointer.
+        let sample_bytes = region(
+            &mmap,
+            "sample_data",
+            header.sample_data_offset,
+            header.sample_data_size,
+        )?;
         let samples: &[i16] = unsafe {
             std::slice::from_raw_parts(
                 sample_bytes.as_ptr() as *const i16,
-                sample_size / std::mem::size_of::<i16>(),
+                sample_bytes.len() / std::mem::size_of::<i16>(),
             )
         };
 
@@ -164,14 +201,19 @@ impl KvPack {
 
         // Calculate byte offset into sample region
         let byte_offset = clip.sample_offset as usize;
-        let byte_length = (clip.stored_frames as usize) * std::mem::size_of::<i16>();
-
-        if byte_offset + byte_length > std::mem::size_of_val(self.samples) {
+        let byte_length = (clip.stored_frames as usize).checked_mul(std::mem::size_of::<i16>())?;
+        let byte_end = byte_offset.checked_add(byte_length)?;
+        if byte_end > std::mem::size_of_val(self.samples) {
+            return None;
+        }
+        // `sample_offset` is validated even, so every clip slice starts on an
+        // `i16` boundary inside the aligned sample region.
+        if byte_offset % std::mem::size_of::<i16>() != 0 {
             return None;
         }
 
         // Return slice of i16 samples (includes guard samples)
-        Some(&self.samples[byte_offset / 2..(byte_offset + byte_length) / 2])
+        Some(&self.samples[byte_offset / 2..byte_end / 2])
     }
 
     /// Gets statistics.

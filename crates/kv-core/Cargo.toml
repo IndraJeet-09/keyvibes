@@ -11,5 +11,8 @@ repository.workspace = true
 thiserror.workspace = true
 serde = { workspace = true, optional = true }
 
+[dev-dependencies]
+toml.workspace = true
+
 [features]
 serde = ["dep:serde"]

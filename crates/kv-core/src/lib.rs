@@ -6,6 +6,25 @@
 //! - Variation parameters
 //! - Geometry
 //! - Settings
+//!
+//! # Platform neutrality
+//!
+//! `kv-core` is the one crate every other crate shares, so it must not know
+//! what it is running on. It carries the vocabulary of the engine -
+//! `PhysicalKey`, `PlayCommand`, `Settings` - and deliberately none of the
+//! machinery that realises them:
+//!
+//! ```text
+//! kv-core                       shared types, no platform
+//!    ├── kv-input-linux         evdev          (future: kv-input-windows)
+//!    └── kv-audio-pipewire      PipeWire       (future: kv-audio-wasapi)
+//! ```
+//!
+//! An input backend translates the host's key codes into [`PhysicalKey`]; an
+//! audio backend renders [`PlayCommand`]s the host understands. Nothing above
+//! that line names either. This is enforced on every `cargo test -p kv-core`
+//! by `tests/platform_audit.rs`, which rejects a dependency outside a short
+//! portable allow list and any use of a platform API in the source.
 
 pub mod geometry;
 pub mod metrics;

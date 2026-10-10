@@ -6,9 +6,11 @@ KeyVibes is a production-quality application that makes your keyboard produce re
 
 ## Status
 
-🚧 **Phase 0 Complete** - Repository structure initialized
+✅ **Phases 0-23 complete** - the engine, the CLI, an install path, and every
+phase acceptance command run green on a stock Linux host. `keyvibes doctor`
+reports what the host is missing rather than failing mysteriously.
 
-## Features (Planned)
+## Features
 
 - **Instant-feeling key sounds** - Sub-millisecond software latency
 - **32-voice polyphony** - Smooth overlapping sounds
@@ -34,11 +36,54 @@ Real-time Audio Engine (32-voice mixer)
 Audio Device
 ```
 
+Everything above the platform line is `kv-core`: `PhysicalKey`, `PlayCommand`,
+`Settings` and nothing that names an operating system. The Linux pieces live
+in leaf crates, so a Windows port is a matter of writing two more:
+
+```text
+kv-core                        shared types, no platform
+   ├── kv-input-linux          evdev       (future: kv-input-windows)
+   └── kv-audio-pipewire       PipeWire    (future: kv-audio-wasapi)
+```
+
+`cargo test -p kv-core` enforces it: the crate may depend on nothing outside
+a short portable allow list, may reach no sibling crate, and may contain no
+use of a platform API.
+
 ## Building
 
 ```bash
 cargo build --release
 ```
+
+## Installing
+
+Per-user, no root:
+
+```bash
+make install PREFIX="$HOME/.local"
+keyvibes doctor
+```
+
+That installs the binary, the sound packs, the docs and a systemd user
+service. `sudo make install PREFIX=/usr/local` does the same system-wide,
+and `make uninstall` takes it all back off. Full requirements, the keyboard
+permission, PipeWire, the configuration and pack locations, and
+troubleshooting are in [docs/install.md](docs/install.md).
+
+## Running
+
+```bash
+keyvibes                 # play keyboard sounds - same as `keyvibes run`
+keyvibes doctor          # is this machine ready? and if not, what to do
+keyvibes pack list       # which sound packs are installed
+keyvibes config show     # every setting, and where each one came from
+keyvibes --help          # the whole interface
+```
+
+`keyvibes doctor` is the thing to run first on a new machine: it prints one
+fixed block of fields and lists any problem with what is wrong, why it thinks
+so, and the command that fixes it.
 
 ## Sound packs
 
@@ -76,6 +121,8 @@ a check that needs hardware or a PipeWire session this host does not have
 never masquerades as a pass:
 
 ```bash
+cargo test -p kv-core                        # includes the platform audit
+cargo run --quiet --bin keyvibes -- cli-test
 cargo run --quiet --bin keyvibes -- hotplug-test
 cargo run --quiet --bin keyvibes -- audio-recovery-test
 cargo run --quiet --bin keyvibes -- idle-test
@@ -83,22 +130,27 @@ cargo run --quiet --bin keyvibes -- config-test
 cargo run --quiet --bin keyvibes -- pack-test
 cargo run --quiet --bin keyvibes -- pack-switch-test
 cargo run --quiet --bin keyvibes -- compatibility-test
+cargo run --quiet --bin keyvibes -- security-test
+cargo run --quiet --bin keyvibes -- doctor
+cargo run --quiet --bin keyvibes -- doctor-test
+cargo run --quiet --release --bin keyvibes -- benchmark
+cargo run --quiet --release --bin keyvibes -- soak-test --duration 30m
 cargo run --quiet --release --bin keyvibes -- stress --duration 20
 ```
+
+`benchmark`, `soak-test` and `stress` need `--release`: their budgets are
+real-time budgets, and a debug build cannot meet them. `soak-test --duration`
+accepts `45s` / `20m` / `2h` and nothing else - a bare number is a typo you
+would otherwise discover thirty minutes later.
 
 See [docs/environment.md](docs/environment.md) for the supported
 environment - notably, no display server or compositor is required.
 
 ## Development Phases
 
-- [x] **Phase 0**: Repository setup
-- [ ] **Phase 1**: Audio engine without keyboard
-- [ ] **Phase 2**: PipeWire integration
-- [ ] **Phase 3**: Evdev input
-- [ ] **Phase 4**: Pack loader
-- [ ] **Phase 5**: Complete mixer
-- [ ] **Phase 6**: Real soundpacks
-- [ ] **Phase 7**: Production hardening
+Phases 0-23 are complete. The gate for each of them is the workspace test
+suite plus the acceptance commands under [Testing](#testing) - a phase is not
+done until those are green.
 
 ## License
 

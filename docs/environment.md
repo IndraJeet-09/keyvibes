@@ -67,6 +67,11 @@ Reading a keyboard needs read access to `/dev/input/event*`. Either:
 * add yourself to the `input` group, or
 * grant an ACL: `setfacl -Rm u:$USER:/dev/input`.
 
+KeyVibes will not work around either: the nodes are `root:input 0660`, and a
+process that cannot open them has nothing to read. `keyvibes doctor` names
+this host condition exactly - `why:` the mode and your groups, `fix:` the
+`usermod` line - and exits 1. That exit is the tool working, not a crash.
+
 Rendering needs nothing beyond a reachable PipeWire socket. See
 `docs/linux-permissions.md`.
 
@@ -87,6 +92,7 @@ xdg-portal, gtk, glib, gdk, winit, tao, global-hotkey
 
 | Symptom | Likely cause |
 |---|---|
+| `keyvibes doctor` exits 1 | read what it printed - every entry carries `why:` and `fix:` |
 | `No keyboards found.` | not in the `input` group, or no keyboard attached |
 | `evdev discovers keyboards` fails in `compatibility-test` | `/dev/input` not readable |
 | `PipeWire ... not reachable` | session not started: `systemctl --user start pipewire` |
@@ -95,9 +101,12 @@ xdg-portal, gtk, glib, gdk, winit, tao, global-hotkey
 ## Verifying
 
 ```bash
+cargo run --quiet --bin keyvibes -- doctor
 cargo run --quiet --bin keyvibes -- compatibility-test
 ```
 
-The command exits non-zero if any check fails. Checks that need a resource
-this session does not have (a PipeWire socket) are reported as `NOT RUN`,
-never as a pass.
+Both exit non-zero if any check fails. Checks that need a resource this
+session does not have (a PipeWire socket, a readable keyboard) are reported as
+`NOT RUN`, never as a pass - except `doctor`, where an unreadable
+`/dev/input/event*` is a real failure, because that is the thing the
+application is about.

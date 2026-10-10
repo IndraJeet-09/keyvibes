@@ -59,10 +59,11 @@ audio_onset:       t3 - t2   (render startup)
 total_software:    t3 - t0   (end-to-end software)
 ```
 
-Run with diagnostics:
+Measure that breakdown under load, and fail the run on any XRUN:
 
 ```bash
-keyvibes --diagnostics
+keyvibes stress
+keyvibes benchmark            # release build required
 ```
 
 ## Benchmarking

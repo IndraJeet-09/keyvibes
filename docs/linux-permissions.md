@@ -39,10 +39,13 @@ groups | grep input
 Test access to a keyboard device:
 
 ```bash
-keyvibes --list-keyboards
+keyvibes doctor
+keyvibes input-test
 ```
 
-If successful, you should see your keyboards listed.
+`doctor` says outright when the nodes are there but unreadable, and names
+the fix. `input-test` lists every keyboard KeyVibes can hear, then shows
+your presses as they arrive.
 
 ## Alternative: Custom udev Rule
 

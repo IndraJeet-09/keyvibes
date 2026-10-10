@@ -249,7 +249,11 @@ pub fn run() -> Result<()> {
     };
     let scratch = std::env::temp_dir().join(format!("keyvibes-compat-test-{}", std::process::id()));
 
-    match run_without_session(&exe, &["--list-keyboards"], &scratch) {
+    // --- 5. static: the binary itself needs no session -------------------
+    // `config show` is the cheapest real command: it opens no device, starts
+    // no audio, and reads only the config file, which run_without_session
+    // points at an absent path.
+    match run_without_session(&exe, &["config", "show"], &scratch) {
         Ok((code, _, _)) => {
             let detail = format!("exit {code:?} with every desktop session variable removed");
             if code == Some(0) {
@@ -343,7 +347,7 @@ pub fn run() -> Result<()> {
 // static scanning
 // ---------------------------------------------------------------------------
 
-fn workspace_root() -> PathBuf {
+pub(crate) fn workspace_root() -> PathBuf {
     // `CARGO_MANIFEST_DIR` is `<root>/crates/keyvibes`; the workspace root is
     // two levels above it.
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -353,19 +357,28 @@ fn workspace_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn rust_sources(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn rust_sources(root: &Path) -> Vec<PathBuf> {
+    rust_sources_excluding(root, &[POLICY_FILE])
+}
+
+/// Every workspace Rust file except the policy files that quote the tokens
+/// they ban (this module and any caller passing its own exclusions).
+pub(crate) fn rust_sources_excluding(root: &Path, exclude: &[&str]) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for dir in ["crates", "xtask/src"] {
         walk(&root.join(dir), &mut files);
     }
     files.retain(|path| match path.file_name() {
-        Some(name) => name.to_string_lossy() != POLICY_FILE,
+        Some(name) => {
+            let name = name.to_string_lossy();
+            !exclude.iter().any(|excluded| name == *excluded)
+        }
         None => true,
     });
     files
 }
 
-fn cargo_manifests(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn cargo_manifests(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for candidate in [root.join("Cargo.toml"), root.join("xtask/Cargo.toml")] {
         if candidate.is_file() {
@@ -412,7 +425,7 @@ fn walk_named(dir: &Path, file_name: &str, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn scan(files: &[PathBuf], tokens: &[&str], insensitive: bool) -> Vec<String> {
+pub(crate) fn scan(files: &[PathBuf], tokens: &[&str], insensitive: bool) -> Vec<String> {
     let needles: Vec<String> = tokens
         .iter()
         .map(|token| {
@@ -492,7 +505,7 @@ fn scan_manifests(manifests: &[PathBuf]) -> Vec<String> {
     hits
 }
 
-fn transitive_deps(root: &Path) -> Result<Vec<String>, String> {
+pub(crate) fn transitive_deps(root: &Path) -> Result<Vec<String>, String> {
     let output = ProcessCommand::new("cargo")
         .args([
             "tree",
@@ -525,7 +538,7 @@ fn transitive_deps(root: &Path) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
-fn summarize(hits: &[String]) -> String {
+pub(crate) fn summarize(hits: &[String]) -> String {
     const MAX: usize = 3;
     let shown: Vec<&str> = hits.iter().take(MAX).map(String::as_str).collect();
     let more = hits.len().saturating_sub(shown.len());
@@ -551,7 +564,7 @@ fn tail(text: &str) -> String {
         .join(" / ")
 }
 
-fn display(path: &Path) -> String {
+pub(crate) fn display(path: &Path) -> String {
     let root = workspace_root();
     path.strip_prefix(&root)
         .map(|rest| rest.display().to_string())
@@ -600,7 +613,7 @@ fn mask_hex_literals(code: &str) -> String {
 /// Removes `//` line comments and `/* */` block comments while respecting
 /// string literals, raw strings, and char literals, so a URL inside a string
 /// is not mistaken for a comment and `fmt::Display` is left alone.
-fn strip_comments(source: &str) -> String {
+pub(crate) fn strip_comments(source: &str) -> String {
     let chars: Vec<char> = source.chars().collect();
     let mut out = String::with_capacity(source.len());
     let mut i = 0;
@@ -699,6 +712,76 @@ fn strip_comments(source: &str) -> String {
                 i += 1;
             }
         }
+    }
+    out
+}
+
+/// Removes `#[cfg(test)] mod ... { ... }` items so an audit of production
+/// source does not trip over unit-test fixtures that legitimately write
+/// files, print keys, or mention forbidden tokens.
+///
+/// Stripping (rather than skipping the whole file) keeps the line numbers of
+/// everything that remains meaningful.
+pub(crate) fn strip_test_modules(source: &str) -> String {
+    const MARKER: &[char] = &['#', '[', 'c', 'f', 'g', '(', 't', 'e', 's', 't'];
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::with_capacity(source.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let looks_like_attribute =
+            i + MARKER.len() <= chars.len() && chars[i..i + MARKER.len()] == *MARKER;
+        if !looks_like_attribute {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        // Close the attribute.
+        let mut j = i;
+        while j < chars.len() && chars[j] != ']' {
+            j += 1;
+        }
+        if j >= chars.len() {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        // Skip trivia between `]` and the item.
+        let mut k = j + 1;
+        while k < chars.len() && chars[k].is_whitespace() {
+            k += 1;
+        }
+        let is_mod = k + 3 <= chars.len() && chars[k..k + 3] == ['m', 'o', 'd'];
+        if !is_mod {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        // Skip the whole item, braces included.
+        let mut m = k;
+        while m < chars.len() && chars[m] != '{' {
+            m += 1;
+        }
+        if m >= chars.len() {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let mut depth = 0usize;
+        while m < chars.len() {
+            match chars[m] {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        m += 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            m += 1;
+        }
+        i = m;
     }
     out
 }

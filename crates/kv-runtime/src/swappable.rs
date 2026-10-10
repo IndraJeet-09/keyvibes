@@ -18,12 +18,20 @@
 //! * the command queue is empty,
 //! * the real-time thread is not inside its process callback (the window in
 //!   which a command sits between the queue and a voice),
-//! * **either** there are no active voices, **or** the safety deadline has
-//!   passed, by which every voice that could have started before the swap
-//!   has finished at the slowest pitch the mixer will use.
+//! * **either** there are no active voices at all, **or** that pack's own
+//!   safety deadline has passed, by which every voice that could have
+//!   started before its swap has finished at the slowest pitch the mixer
+//!   will use.
+//!
+//! The deadline is per parked pack, never shared: two swaps in a row park
+//! two packs with different deadlines, and releasing the newer one because
+//! the older one's deadline came first would unmap sample data the
+//! real-time thread is still reading.
 
 use crate::player::PackPlayer;
+use kv_audio_pipewire::stream::RtStats;
 use kv_core::{PhysicalKey, PlayCommand, SoundSource, VariantState};
+use kv_ring::SpscRing;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -39,6 +47,20 @@ pub struct SwappableSource {
     /// Producers inside `play` .. `queued`. Announced before the lock is
     /// taken so the retire check can never race past one.
     producers: AtomicUsize,
+    /// [`Slot::retired`].len() mirrored for lock-free reads, so the release
+    /// path can prove there is nothing parked before it takes any lock.
+    parked: AtomicUsize,
+    /// Live real-time state, installed by the runtime once the engine is up.
+    ///
+    /// Input threads have no other way to observe it, and it is what turns
+    /// [`retire_if_safe`](Self::retire_if_safe) from a guess into a proof.
+    release: Mutex<Option<Arc<ReleaseGate>>>,
+}
+
+/// The real-time observations a release decision needs.
+struct ReleaseGate {
+    stats: Arc<RtStats>,
+    queue: Arc<SpscRing<PlayCommand>>,
 }
 
 #[derive(Default)]
@@ -79,6 +101,8 @@ impl SwappableSource {
                 retired: Vec::new(),
             }),
             producers: AtomicUsize::new(0),
+            parked: AtomicUsize::new(0),
+            release: Mutex::new(None),
         }
     }
 
@@ -115,6 +139,7 @@ impl SwappableSource {
             None => ("<none>".to_string(), swapped_at),
         };
         let retired = slot.retired.len();
+        self.parked.store(retired, Ordering::Release);
         drop(slot);
 
         SwapReport {
@@ -138,6 +163,9 @@ impl SwappableSource {
 
     /// The moment the oldest parked pack becomes free of every check.
     ///
+    /// Diagnostics only: a release decision never consults this, because the
+    /// oldest deadline proves nothing about the packs parked after it.
+    ///
     /// `None` when nothing is parked.
     pub fn safety_deadline(&self) -> Option<Instant> {
         self.lock()
@@ -147,17 +175,77 @@ impl SwappableSource {
             .min()
     }
 
-    /// Releases every parked pack when `may_release` says it is safe.
+    /// Installs the live real-time state a release decision needs.
+    ///
+    /// The runtime calls this once the audio engine is up. Before it, only
+    /// an explicit [`retire`](Self::retire) can release anything: input
+    /// threads cannot observe the stream for themselves.
+    pub fn attach(&self, stats: Arc<RtStats>, queue: Arc<SpscRing<PlayCommand>>) {
+        let mut release = self
+            .release
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *release = Some(Arc::new(ReleaseGate { stats, queue }));
+    }
+
+    /// Releases parked packs that are provably unreferenced.
+    ///
+    /// The caller must already have established that no producer is inside
+    /// `play` .. `queued`, the command queue is empty, and the real-time
+    /// thread is not inside its process callback - see
+    /// [`retire_if_safe`](Self::retire_if_safe), which does all of it.
+    ///
+    /// * `voices_clear` - the mixer is rendering nothing at all, so no pack
+    ///   can be read any more and every parked pack goes.
+    /// * otherwise - only packs whose **own** safety deadline has passed go.
+    ///   A pack parked moments ago may still be sounding while one parked
+    ///   earlier has finished; releasing them together would unmap sample
+    ///   data the real-time thread is still reading.
     ///
     /// Returns how many packs were released.
-    pub fn retire(&self, may_release: bool) -> usize {
-        if !may_release {
+    pub fn retire(&self, voices_clear: bool) -> usize {
+        let mut slot = self.lock();
+        let before = slot.retired.len();
+        if voices_clear {
+            slot.retired.clear();
+        } else {
+            let now = Instant::now();
+            slot.retired.retain(|entry| now < entry.safe_after);
+        }
+        self.parked.store(slot.retired.len(), Ordering::Release);
+        before - slot.retired.len()
+    }
+
+    /// Releases parked packs from an input thread, when it is safe.
+    ///
+    /// Called after every command a producer queues - the place a swap's
+    /// parked pack is most likely to be forgotten. The fast path is one
+    /// atomic load, so the usual case (nothing parked) costs nothing.
+    ///
+    /// Returns how many packs were released.
+    pub fn retire_if_safe(&self) -> usize {
+        if self.parked.load(Ordering::Acquire) == 0 {
             return 0;
         }
-        let mut slot = self.lock();
-        let released = slot.retired.len();
-        slot.retired.clear();
-        released
+        let gate = self
+            .release
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        let Some(gate) = gate else {
+            return 0;
+        };
+        let stats = gate.stats.snapshot();
+        let producers_clear = self.producers.load(Ordering::SeqCst) == 0;
+        let queue_clear = gate.queue.is_empty();
+        // The one window in which a command has left the queue but has not
+        // become a voice yet: only observable while the data thread is in
+        // its callback.
+        let not_mid_callback = !stats.in_callback;
+        if !(producers_clear && queue_clear && not_mid_callback) {
+            return 0;
+        }
+        self.retire(stats.active_voices == 0)
     }
 
     /// Names of the parked packs, oldest first (diagnostics and tests).
@@ -193,9 +281,13 @@ impl SoundSource for SwappableSource {
         command
     }
 
-    #[inline]
     fn queued(&self, _command: PlayCommand) {
         self.producers.fetch_sub(1, Ordering::SeqCst);
+        // Where a swap's parked pack is released in production: an input
+        // thread is running here anyway, and it is the only control-plane
+        // hook that fires once per press while a pack is parked. The fast
+        // path is a single atomic load when nothing is parked.
+        self.retire_if_safe();
     }
 }
 
@@ -313,5 +405,26 @@ mod tests {
             source.retired_names(),
             vec!["One".to_string(), "Two".to_string()]
         );
+    }
+
+    #[test]
+    fn retire_does_not_drop_newer_park_when_older_deadline_passes() {
+        let source = SwappableSource::new(build_player("One"));
+        let _ = source.swap(build_player("Two"));
+        // Artificially expire the first parked pack's deadline to simulate time passing.
+        {
+            let mut slot = source.lock();
+            slot.retired[0].safe_after = Instant::now() - Duration::from_millis(10);
+        }
+
+        // Now swap to Three. Two gets a brand-new safe_after (~1s in future).
+        let _ = source.swap(build_player("Three"));
+        assert_eq!(source.retired(), 2);
+
+        // Calling retire(false) (voices not clear) must ONLY drop "One", keeping "Two".
+        let released = source.retire(false);
+        assert_eq!(released, 1, "only the expired pack was released");
+        assert_eq!(source.retired(), 1, "newer pack must still be parked");
+        assert_eq!(source.retired_names(), vec!["Two".to_string()]);
     }
 }

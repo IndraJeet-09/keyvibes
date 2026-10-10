@@ -193,37 +193,19 @@ impl Runtime {
     /// Releases parked packs if - and only if - nothing can reference them.
     ///
     /// Safe to call at any time from the control plane; it returns how many
-    /// packs were released and simply does nothing when the stream is still
-    /// using them. Call it repeatedly (after a switch, while idle, at
-    /// shutdown) rather than waiting for a specific moment.
+    /// packs were released and does nothing while the stream is still using
+    /// them. Input threads run the same check after every press, so polling
+    /// here is only needed when no press is coming.
     pub fn retire_packs(&self) -> usize {
         let Some(source) = self.source.as_ref() else {
             return 0;
         };
-        if source.retired() == 0 {
-            return 0;
+        // With no engine there is no stream, so nothing can be referencing a
+        // parked pack yet.
+        if self.audio_stats.is_none() {
+            return source.retire(true);
         }
-
-        let stats = self.audio_stats();
-        let producers_clear = source.producers() == 0;
-        let queue_clear = self.command_queue.is_empty();
-        // The one window in which a command has left the queue but has not
-        // become a voice yet: only observable while the data thread is in
-        // its callback.
-        let not_mid_callback = !stats.in_callback;
-
-        if !(producers_clear && queue_clear && not_mid_callback) {
-            return 0;
-        }
-
-        // Either nothing is sounding, or the safety deadline proves every
-        // voice that started before the swap has finished by now.
-        let voices_clear = stats.active_voices == 0;
-        let deadline_passed = source
-            .safety_deadline()
-            .is_some_and(|deadline| std::time::Instant::now() >= deadline);
-
-        source.retire(voices_clear || deadline_passed)
+        source.retire_if_safe()
     }
 
     fn load_pack_inner<P: AsRef<Path>>(&mut self, path: P) -> Result<SwapReport, RuntimeError> {
@@ -235,18 +217,31 @@ impl Runtime {
         let report = match self.source.clone() {
             Some(source) => source.swap(player),
             None => {
-                self.source = Some(Arc::new(SwappableSource::new(player)));
-                SwapReport {
+                let source = Arc::new(SwappableSource::new(player));
+                self.attach_source(&source);
+                let report = SwapReport {
                     from: "<none>".to_string(),
                     to: pack.stats().name.clone(),
                     retired: 0,
                     safe_after: std::time::Instant::now(),
                     elapsed: std::time::Duration::ZERO,
-                }
+                };
+                self.source = Some(source);
+                report
             }
         };
         self.pack = Some(pack);
         Ok(report)
+    }
+
+    /// Gives `source` the live real-time state releasing parked packs needs.
+    ///
+    /// A no-op before [`start_audio`](Self::start_audio): there is no stream
+    /// yet, so nothing can reference a parked pack. Safe to call again later.
+    fn attach_source(&self, source: &SwappableSource) {
+        if let Some(stats) = self.audio_stats.clone() {
+            source.attach(stats, self.command_queue.clone());
+        }
     }
 
     /// The loaded pack, if any.
@@ -285,6 +280,11 @@ impl Runtime {
             },
         )?;
         self.audio_stats = Some(engine.stats_block());
+        // Parked packs are released by input threads, so they need the live
+        // real-time state to decide when. Installed before any input starts.
+        if let Some(source) = self.source.clone() {
+            self.attach_source(&source);
+        }
         // Input threads resume a paused stream with the same keypress that
         // produced the sound - never via the idle monitor's poll.
         self.wake = Some(Arc::new(engine.control()));

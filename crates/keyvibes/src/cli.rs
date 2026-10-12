@@ -146,7 +146,20 @@ pub enum Command {
 
     // ------------------------------------------------- verification commands
     // The per-phase acceptance checks, all named `*-test` and all listed last
-    // so the product is what a reader sees first.
+    // so the product is what a reader sees first. `acceptance-test` leads
+    // them because it is the one that answers "does the whole thing work".
+    /// The full product flow, end to end, in one pass
+    ///
+    /// Launches the real engine, discovers input, loads a pack, starts
+    /// PipeWire, feeds it keys, and checks the contract at each step: packs
+    /// load, input enumerates, events become commands, variants rotate, 32
+    /// voices mix and render, configuration round-trips, a pack can be
+    /// swapped under load, audio reconnects, the real-time path allocates
+    /// nothing, and nothing is logged, transmitted, grabbed, or injected.
+    /// Steps that need hardware this host does not have are `NOT RUN`,
+    /// never a pass.
+    AcceptanceTest,
+
     /// Verify that input survives keyboards being removed and reconnected
     ///
     /// Always runs a deterministic walk of the exact device state machine the

@@ -149,6 +149,10 @@ pub fn run() -> Result<()> {
     );
 
     // --- 4. an empty pack directory is diagnosed --------------------------
+    // HOME and XDG_DATA_HOME are pointed at the scratch directory too: with
+    // packs installed in the real ~/.local/share, or a checkout's
+    // assets/soundpacks on the path, this would be a machine that does have a
+    // pack, and the check would be measuring the wrong thing.
     let empty = root.join("packs");
     let _ = std::fs::create_dir_all(&empty);
     let (code, text) = invoke(
@@ -157,6 +161,8 @@ pub fn run() -> Result<()> {
         &[
             ("KEYVIBES_CONFIG", Some(&defaults)),
             ("KEYVIBES_PACK_DIR", Some(&empty)),
+            ("XDG_DATA_HOME", Some(&root)),
+            ("HOME", Some(&root)),
         ],
         Some(&root),
     );

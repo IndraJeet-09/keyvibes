@@ -56,6 +56,7 @@ const WRITE_ALLOWLIST: &[&str] = &[
     "crates/keyvibes/src/idle_test.rs",
     "crates/keyvibes/src/audio_recovery_test.rs",
     "crates/keyvibes/src/hotplug_test.rs",
+    "crates/keyvibes/src/acceptance_test.rs",
 ];
 
 /// Crates whose source must never log a key event.
@@ -83,6 +84,9 @@ const COMMAND_ALLOWLIST: &[&str] = &[
     "doctor_test.rs",
     // Re-executes `keyvibes --help` to walk the advertised interface.
     "cli_test.rs",
+    // Re-executes `keyvibes security-test` so the whole-product acceptance
+    // runs the same audit rather than a second copy of it.
+    "acceptance_test.rs",
 ];
 
 /// Crates that may be absent from the dependency graph, checked transitively.

@@ -129,7 +129,7 @@ pub fn run(options: SoakOptions) -> Result<()> {
             }
         },
     };
-    let mut packs = pack_locate::discover();
+    let mut packs = pack_locate::discover_unique();
     if packs.is_empty() {
         packs.push(current_pack.clone());
     }

@@ -55,6 +55,34 @@ pub fn discover() -> Vec<PathBuf> {
     found
 }
 
+/// [`discover`], with one entry per pack name.
+///
+/// The same pack can be reachable from more than one search directory - a
+/// checkout's `assets/soundpacks` and a `make install` into `$HOME/.local`
+/// both being on the list is the common case. Selection already takes the
+/// first name match, so a second copy is not a second choice; listing it
+/// would make `--pack` look like it had two answers.
+///
+/// Unreadable packs are kept under their file stem, so they still appear in
+/// `pack list` with the error rather than vanishing.
+pub fn discover_unique() -> Vec<PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    let mut unique = Vec::new();
+    for path in discover() {
+        let key = KvPack::open(&path)
+            .map(|loaded| loaded.stats().name.to_lowercase())
+            .unwrap_or_else(|_| {
+                path.file_stem()
+                    .map(|stem| stem.to_string_lossy().to_lowercase())
+                    .unwrap_or_default()
+            });
+        if seen.insert(key) {
+            unique.push(path);
+        }
+    }
+    unique
+}
+
 /// Resolves the pack to load.
 ///
 /// `explicit` wins; otherwise `KEYVIBES_PACK` is used if set; otherwise the
@@ -144,7 +172,7 @@ pub fn resolve_selector(selector: &str) -> Result<PathBuf> {
 
 /// Installed pack names, in search order, for error messages and `pack list`.
 pub fn available_names() -> Vec<String> {
-    discover()
+    discover_unique()
         .into_iter()
         .filter_map(|path| KvPack::open(&path).ok())
         .map(|loaded| loaded.stats().name)
@@ -200,5 +228,32 @@ mod tests {
                 path.display()
             );
         }
+    }
+
+    #[test]
+    fn unique_discovery_lists_each_name_once() {
+        let unique = discover_unique();
+        let mut names: Vec<String> = unique
+            .iter()
+            .filter_map(|path| KvPack::open(path).ok())
+            .map(|loaded| loaded.stats().name.to_lowercase())
+            .collect();
+        names.sort();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(
+            before,
+            names.len(),
+            "the same pack was listed twice: {names:?}"
+        );
+    }
+
+    #[test]
+    fn unique_discovery_keeps_every_discovered_file_in_order() {
+        let unique = discover_unique();
+        assert!(unique.len() <= discover().len());
+        let mut subset = discover();
+        subset.retain(|path| unique.contains(path));
+        assert_eq!(subset, unique, "dedup must not reorder or invent paths");
     }
 }

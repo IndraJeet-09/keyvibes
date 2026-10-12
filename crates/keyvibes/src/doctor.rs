@@ -276,7 +276,7 @@ fn gather_packs(
     config: &Config,
     problems: &mut Vec<Problem>,
 ) -> (PackReport, Row, Row) {
-    let installed = pack_locate::discover();
+    let installed = pack_locate::discover_unique();
     let names: Vec<String> = installed
         .iter()
         .map(|path| {

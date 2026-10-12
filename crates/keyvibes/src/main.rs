@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod accept;
+mod acceptance_test;
 mod alloc_probe;
 mod audio_cmd;
 mod audio_recovery_test;
@@ -72,7 +73,27 @@ impl SoundSource for EventProbe {
     }
 }
 
+/// Restores the default disposition of `SIGPIPE`.
+///
+/// Rust ignores the signal at startup, so writing to a closed pipe - `keyvibes
+/// pack list | head`, say - surfaces as `EPIPE`, which `println!` turns into a
+/// panic. Every other CLI lets the short write end the process instead.
+///
+/// # Safety
+///
+/// Installs `SIG_DFL`, which takes no argument. Called before any thread or
+/// signal handler exists, so there is nothing to disturb.
+fn reset_sigpipe() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
 fn main() -> Result<()> {
+    // `| head` and friends close the pipe; let that end the process quietly
+    // instead of panicking on EPIPE.
+    reset_sigpipe();
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -150,6 +171,15 @@ fn main() -> Result<()> {
             ConfigAction::Init { force } => config_init(force),
         },
         Some(Command::CliTest) => cli_test::run(),
+        Some(Command::AcceptanceTest) => {
+            let (_path, config) = load_config()?;
+            acceptance_test::run(acceptance_test::AcceptanceOptions {
+                pack: Some(select_pack(cli.sound_pack.as_deref(), &config)?),
+                rate: 48_000,
+                settings: config.settings(),
+                output_device: config.output_device.clone(),
+            })
+        }
         Some(Command::SecurityTest) => security_test::run(),
         Some(Command::ConfigTest) => config_test::run(),
         Some(Command::Analyze { sources }) => audio_cmd::analyze(&sources),
@@ -465,7 +495,7 @@ fn select_pack(selector: Option<&str>, config: &Config) -> Result<PathBuf> {
 /// `keyvibes pack list`
 fn list_packs(verbose: bool) -> Result<()> {
     let dirs = pack_locate::search_dirs();
-    let found = pack_locate::discover();
+    let found = pack_locate::discover_unique();
 
     if verbose {
         println!("Searched:");

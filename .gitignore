@@ -21,6 +21,10 @@ Thumbs.db
 /assets/soundpacks/*
 !/assets/soundpacks/.gitkeep
 !/assets/soundpacks/default-src/
+!/assets/soundpacks/upstream-src/
 
 # Generated
 /docs/api/
+
+__pycache__/
+*.pyc

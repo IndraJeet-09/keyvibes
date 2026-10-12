@@ -162,6 +162,12 @@ pub struct BuildReport {
 pub struct PackBuilder {
     /// Keys mapped to their variant clips (BTreeMap = ascending key ID order).
     keys: BTreeMap<PhysicalKey, Vec<ClipData>>,
+    /// Keys mapped to their release clips (ascending key ID order).
+    ///
+    /// Written as the version 2 release table; a pack with no release clips is
+    /// written as version 1 and stays byte-identical to before this field
+    /// existed.
+    releases: BTreeMap<PhysicalKey, Vec<ClipData>>,
     /// Optional pack-wide sample rate requirement.
     sample_rate: Option<u32>,
     /// Metadata fields.
@@ -170,6 +176,8 @@ pub struct PackBuilder {
     pub description: String,
     pub license: String,
     pub source: String,
+    /// Switch category; written as the optional sixth metadata string.
+    pub category: String,
 }
 
 impl Default for PackBuilder {
@@ -183,12 +191,14 @@ impl PackBuilder {
     pub fn new() -> Self {
         Self {
             keys: BTreeMap::new(),
+            releases: BTreeMap::new(),
             sample_rate: None,
             name: String::new(),
             author: String::new(),
             description: String::new(),
             license: String::new(),
             source: String::new(),
+            category: String::new(),
         }
     }
 
@@ -211,7 +221,32 @@ impl PackBuilder {
 
     /// Adds a clip variant for a key.
     pub fn add_clip(&mut self, key: PhysicalKey, clip: ClipData) -> PackResult<()> {
-        let variants = self.keys.entry(key).or_default();
+        Self::push_variant(&mut self.keys, key, clip)
+    }
+
+    /// Adds a WAV file as a variant for a key.
+    pub fn add_wav(&mut self, key: PhysicalKey, path: impl AsRef<Path>) -> PackResult<()> {
+        let clip = ClipData::from_wav(path)?;
+        self.add_clip(key, clip)
+    }
+
+    /// Adds a release clip variant for a key.
+    pub fn add_release_clip(&mut self, key: PhysicalKey, clip: ClipData) -> PackResult<()> {
+        Self::push_variant(&mut self.releases, key, clip)
+    }
+
+    /// Adds a WAV file as a release variant for a key.
+    pub fn add_release_wav(&mut self, key: PhysicalKey, path: impl AsRef<Path>) -> PackResult<()> {
+        let clip = ClipData::from_wav(path)?;
+        self.add_release_clip(key, clip)
+    }
+
+    fn push_variant(
+        map: &mut BTreeMap<PhysicalKey, Vec<ClipData>>,
+        key: PhysicalKey,
+        clip: ClipData,
+    ) -> PackResult<()> {
+        let variants = map.entry(key).or_default();
 
         if variants.len() >= MAX_VARIANTS_PER_KEY as usize {
             return Err(PackError::InvalidVariantCount {
@@ -225,20 +260,20 @@ impl PackBuilder {
         Ok(())
     }
 
-    /// Adds a WAV file as a variant for a key.
-    pub fn add_wav(&mut self, key: PhysicalKey, path: impl AsRef<Path>) -> PackResult<()> {
-        let clip = ClipData::from_wav(path)?;
-        self.add_clip(key, clip)
-    }
-
     /// Number of keys added so far.
     pub fn key_count(&self) -> usize {
         self.keys.len()
     }
 
-    /// Number of clips added so far.
+    /// Number of keys that carry at least one release clip.
+    pub fn release_count(&self) -> usize {
+        self.releases.len()
+    }
+
+    /// Number of clips added so far (press and release combined).
     pub fn clip_count(&self) -> u32 {
-        self.keys.values().map(|v| v.len() as u32).sum()
+        self.keys.values().map(|v| v.len() as u32).sum::<u32>()
+            + self.releases.values().map(|v| v.len() as u32).sum::<u32>()
     }
 
     /// Resolves the pack-wide sample rate.
@@ -247,7 +282,7 @@ impl PackBuilder {
     fn resolve_sample_rate(&self) -> PackResult<u32> {
         let mut rate = self.sample_rate;
 
-        for (key, variants) in &self.keys {
+        for (key, variants) in self.keys.iter().chain(self.releases.iter()) {
             for clip in variants {
                 match rate {
                     None => rate = Some(clip.sample_rate),
@@ -283,6 +318,11 @@ impl PackBuilder {
             return Err(PackError::TooManyClips(clip_count, MAX_CLIPS));
         }
 
+        let release_count = self.releases.len() as u32;
+        if release_count > MAX_KEYS {
+            return Err(PackError::TooManyKeys(release_count, MAX_KEYS));
+        }
+
         let sample_rate = self.resolve_sample_rate()?;
 
         let metadata = writer::encode_metadata(
@@ -291,55 +331,68 @@ impl PackBuilder {
             &self.description,
             &self.license,
             &self.source,
+            &self.category,
         )?;
 
-        // Sample offsets in clip-table order.
+        // Sample offsets in clip-table order: every key's press variants
+        // (ascending key), then every key's release variants (ascending key).
         let stored_frames: Vec<u32> = self
             .keys
             .values()
+            .chain(self.releases.values())
             .flatten()
             .map(ClipData::stored_frames)
             .collect();
         let (sample_offsets, sample_bytes) = compute_sample_offsets(&stored_frames)?;
 
-        let layout = compute_layout(metadata.len() as u32, key_count, clip_count, sample_bytes)?;
+        let layout = compute_layout(
+            metadata.len() as u32,
+            key_count,
+            release_count,
+            clip_count,
+            sample_bytes,
+        )?;
 
-        // Key and clip tables (keys ascending by discriminant via BTreeMap).
+        // Key, release, and clip tables (keys ascending by discriminant via
+        // BTreeMap). Press clips occupy the clip table first; release clips
+        // follow, and the release table points into that shared index space.
         let mut key_table = Vec::with_capacity(key_count as usize * KEY_ENTRY_SIZE);
+        let mut release_table = Vec::with_capacity(release_count as usize * RELEASE_ENTRY_SIZE);
         let mut clip_table = Vec::with_capacity(clip_count as usize * CLIP_ENTRY_SIZE);
         let mut clips = Vec::with_capacity(clip_count as usize);
         let mut clip_index = 0u32;
 
-        for (key, variants) in &self.keys {
-            key_table.extend_from_slice(&key.as_u16().to_le_bytes());
-            key_table.extend_from_slice(&(variants.len() as u16).to_le_bytes());
-            key_table.extend_from_slice(&clip_index.to_le_bytes());
-
-            for clip in variants {
-                let sample_offset = sample_offsets[clip_index as usize];
-
-                clip_table.extend_from_slice(&sample_offset.to_le_bytes());
-                clip_table.extend_from_slice(&clip.logical_frames.to_le_bytes());
-                clip_table.extend_from_slice(&GUARD_BEFORE.to_le_bytes());
-                clip_table.extend_from_slice(&GUARD_AFTER.to_le_bytes());
-                clip_table.extend_from_slice(&clip.stored_frames().to_le_bytes());
-
-                clips.push(clip);
-                clip_index += 1;
-            }
-        }
+        emit_key_and_clip_entries(
+            &self.keys,
+            &mut key_table,
+            &mut clip_table,
+            &mut clips,
+            &sample_offsets,
+            &mut clip_index,
+        );
+        emit_key_and_clip_entries(
+            &self.releases,
+            &mut release_table,
+            &mut clip_table,
+            &mut clips,
+            &sample_offsets,
+            &mut clip_index,
+        );
 
         debug_assert_eq!(clip_index, clip_count);
         debug_assert_eq!(key_table.len(), layout.key_table_size as usize);
+        debug_assert_eq!(release_table.len(), layout.release_table_size as usize);
         debug_assert_eq!(clip_table.len(), layout.clip_table_size as usize);
 
         Ok(PackPlan {
             layout,
             sample_rate,
             key_count,
+            release_count,
             clip_count,
             metadata,
             key_table,
+            release_table,
             clip_table,
             clips,
         })
@@ -369,6 +422,37 @@ impl PackBuilder {
     }
 }
 
+/// Emits one map's entries into its own table while assigning consecutive
+/// clip-table slots. Press keys go first, release keys second; both write
+/// clip entries in the shared clip-table order.
+fn emit_key_and_clip_entries<'a>(
+    map: &'a BTreeMap<PhysicalKey, Vec<ClipData>>,
+    table: &mut Vec<u8>,
+    clip_table: &mut Vec<u8>,
+    clips: &mut Vec<&'a ClipData>,
+    sample_offsets: &[u64],
+    clip_index: &mut u32,
+) {
+    for (key, variants) in map {
+        table.extend_from_slice(&key.as_u16().to_le_bytes());
+        table.extend_from_slice(&(variants.len() as u16).to_le_bytes());
+        table.extend_from_slice(&clip_index.to_le_bytes());
+
+        for clip in variants {
+            let sample_offset = sample_offsets[*clip_index as usize];
+
+            clip_table.extend_from_slice(&sample_offset.to_le_bytes());
+            clip_table.extend_from_slice(&clip.logical_frames.to_le_bytes());
+            clip_table.extend_from_slice(&GUARD_BEFORE.to_le_bytes());
+            clip_table.extend_from_slice(&GUARD_AFTER.to_le_bytes());
+            clip_table.extend_from_slice(&clip.stored_frames().to_le_bytes());
+
+            clips.push(clip);
+            *clip_index += 1;
+        }
+    }
+}
+
 /// Resolves the dither seed for one clip, or `None` when dithering is off.
 ///
 /// Deterministic mode derives from `(pack seed, key, variant, manifest-
@@ -390,6 +474,82 @@ fn dither_seed_for(
     Some(DitherSeed::derive(cfg.dither_seed, key, variant, source))
 }
 
+/// Resolves one manifest-relative sample path and turns it into a [`ClipData`].
+///
+/// Applies the Phase 5 processor when enabled, otherwise the legacy raw
+/// decode. `expected_rate` is threaded through so every clip in the pack is
+/// checked against a single pack-wide rate (the v1 format has no resampling).
+/// Returns the clip plus its processing report (report is `None` on the
+/// legacy path).
+fn load_clip(
+    root: &Path,
+    relative: &str,
+    key: PhysicalKey,
+    variant: u16,
+    processor: &AudioProcessor,
+    processing: &ProcessingConfig,
+    expected_rate: &mut Option<u32>,
+) -> PackResult<(ClipData, Option<ProcessingReport>)> {
+    let absolute =
+        crate::manifest::resolve_source(root, relative).map_err(|e| PackError::BuildContext {
+            key: key.to_string(),
+            file: relative.to_string(),
+            reason: e.to_string(),
+        })?;
+
+    let (pcm, report) = if processing.enabled {
+        // Phase 5 path: f32 decode → DSP → dithered i16.
+        // The dither seed derives from the *manifest-relative* path
+        // so builds are reproducible across machines.
+        let source = wav::decode_wav(&absolute).map_err(|e| PackError::BuildContext {
+            key: key.to_string(),
+            file: relative.to_string(),
+            reason: e.to_string(),
+        })?;
+        let processed =
+            processor
+                .process(source.to_mono())
+                .map_err(|e| PackError::BuildContext {
+                    key: key.to_string(),
+                    file: relative.to_string(),
+                    reason: e.to_string(),
+                })?;
+        let seed = dither_seed_for(processing, key, variant, relative);
+        let pcm = crate::processing::encode_i16(&processed.samples, processed.sample_rate, seed)
+            .map_err(|e| PackError::BuildContext {
+                key: key.to_string(),
+                file: relative.to_string(),
+                reason: e.to_string(),
+            })?;
+
+        (pcm, Some(processed.report))
+    } else {
+        // Legacy path: byte-identical to Phase 4.
+        let pcm = wav::load_wav(&absolute).map_err(|e| PackError::BuildContext {
+            key: key.to_string(),
+            file: relative.to_string(),
+            reason: e.to_string(),
+        })?;
+        (pcm, None)
+    };
+
+    // One pack-wide rate: report the offending file directly.
+    let actual = pcm.sample_rate;
+    match expected_rate {
+        None => *expected_rate = Some(actual),
+        Some(expected) if *expected != actual => {
+            return Err(PackError::BuildContext {
+                key: key.to_string(),
+                file: relative.to_string(),
+                reason: format!("sample rate mismatch: expected {expected} Hz, got {actual} Hz"),
+            });
+        }
+        _ => {}
+    }
+
+    Ok((ClipData::from_pcm(pcm)?, report))
+}
+
 /// Builds a pack from a manifest file, reporting progress through `progress`.
 ///
 /// The output is written atomically (temporary file → self-validate → rename),
@@ -406,7 +566,10 @@ pub fn build_from_manifest<P: AsRef<Path>, O: AsRef<Path>>(
     let manifest = PackManifest::load(manifest_path)?;
     let keys = manifest.resolved_keys()?;
     let root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let total_sources: usize = keys.iter().map(|k| k.samples.len()).sum();
+    let total_sources: usize = keys
+        .iter()
+        .map(|k| k.samples.len() + k.release_samples.len())
+        .sum();
 
     let processing = manifest.processing_config()?;
     let processor = AudioProcessor::new(processing.clone());
@@ -419,6 +582,7 @@ pub fn build_from_manifest<P: AsRef<Path>, O: AsRef<Path>>(
     builder.description = manifest.pack.description.clone();
     builder.license = manifest.pack.license.clone();
     builder.source = manifest.pack.source.clone();
+    builder.category = manifest.pack.category.clone();
 
     if let Some(rate) = manifest.pack.sample_rate {
         builder.set_sample_rate(rate)?;
@@ -436,73 +600,50 @@ pub fn build_from_manifest<P: AsRef<Path>, O: AsRef<Path>>(
                 path: PathBuf::from(relative),
             });
 
-            let absolute = crate::manifest::resolve_source(root, relative).map_err(|e| {
-                PackError::BuildContext {
-                    key: key.physical_key.to_string(),
-                    file: relative.clone(),
-                    reason: e.to_string(),
-                }
-            })?;
-
-            let pcm = if processing.enabled {
-                // Phase 5 path: f32 decode → DSP → dithered i16.
-                // The dither seed derives from the *manifest-relative* path
-                // so builds are reproducible across machines.
-                let source = wav::decode_wav(&absolute).map_err(|e| PackError::BuildContext {
-                    key: key.physical_key.to_string(),
-                    file: relative.clone(),
-                    reason: e.to_string(),
-                })?;
-                let processed =
-                    processor
-                        .process(source.to_mono())
-                        .map_err(|e| PackError::BuildContext {
-                            key: key.physical_key.to_string(),
-                            file: relative.clone(),
-                            reason: e.to_string(),
-                        })?;
-                let seed = dither_seed_for(&processing, key.physical_key, variant as u16, relative);
-                let pcm =
-                    crate::processing::encode_i16(&processed.samples, processed.sample_rate, seed)
-                        .map_err(|e| PackError::BuildContext {
-                            key: key.physical_key.to_string(),
-                            file: relative.clone(),
-                            reason: e.to_string(),
-                        })?;
-
+            let (clip, report) = load_clip(
+                root,
+                relative,
+                key.physical_key,
+                variant as u16,
+                &processor,
+                &processing,
+                &mut expected_rate,
+            )?;
+            if let Some(report) = report {
                 progress(BuildEvent::Processed {
                     key: key.physical_key,
                     variant: variant as u16,
-                    report: processed.report,
+                    report,
                 });
-                pcm
-            } else {
-                // Legacy path: byte-identical to Phase 4.
-                wav::load_wav(&absolute).map_err(|e| PackError::BuildContext {
-                    key: key.physical_key.to_string(),
-                    file: relative.clone(),
-                    reason: e.to_string(),
-                })?
-            };
-
-            // One pack-wide rate: report the offending file directly.
-            match expected_rate {
-                None => expected_rate = Some(pcm.sample_rate),
-                Some(expected) if expected != pcm.sample_rate => {
-                    return Err(PackError::BuildContext {
-                        key: key.physical_key.to_string(),
-                        file: relative.clone(),
-                        reason: format!(
-                            "sample rate mismatch: expected {expected} Hz, got {} Hz",
-                            pcm.sample_rate
-                        ),
-                    });
-                }
-                _ => {}
             }
-
-            let clip = ClipData::from_pcm(pcm)?;
             builder.add_clip(key.physical_key, clip)?;
+        }
+
+        for (variant, relative) in key.release_samples.iter().enumerate() {
+            index += 1;
+            progress(BuildEvent::Source {
+                index,
+                total: total_sources,
+                path: PathBuf::from(relative),
+            });
+
+            let (clip, report) = load_clip(
+                root,
+                relative,
+                key.physical_key,
+                variant as u16,
+                &processor,
+                &processing,
+                &mut expected_rate,
+            )?;
+            if let Some(report) = report {
+                progress(BuildEvent::Processed {
+                    key: key.physical_key,
+                    variant: variant as u16,
+                    report,
+                });
+            }
+            builder.add_release_clip(key.physical_key, clip)?;
         }
     }
 

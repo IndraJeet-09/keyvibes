@@ -10,6 +10,11 @@ pub struct InputStats {
     pub key_releases: AtomicU64,
     pub repeats_ignored: AtomicU64,
     pub unknown_keys: AtomicU64,
+    /// Presses the selected pack has no clip for.
+    ///
+    /// The press is counted and stays silent: a pack never substitutes
+    /// another key's sound for a key it does not carry.
+    pub missing_sounds: AtomicU64,
     pub sync_dropped: AtomicU64,
     pub commands_generated: AtomicU64,
     pub commands_dropped: AtomicU64,
@@ -34,6 +39,7 @@ impl InputStats {
             key_releases: AtomicU64::new(0),
             repeats_ignored: AtomicU64::new(0),
             unknown_keys: AtomicU64::new(0),
+            missing_sounds: AtomicU64::new(0),
             sync_dropped: AtomicU64::new(0),
             commands_generated: AtomicU64::new(0),
             commands_dropped: AtomicU64::new(0),
@@ -61,6 +67,15 @@ impl InputStats {
 
     pub fn increment_unknown(&self) {
         self.unknown_keys.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Records a press whose key the selected pack carries no sound for.
+    ///
+    /// Distinct from [`Self::increment_unknown`]: that one is a keycode the
+    /// evdev mapping does not recognise at all, this one is a key the
+    /// mapping understands but the pack does not carry.
+    pub fn increment_missing_sound(&self) {
+        self.missing_sounds.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Records a `SYN_DROPPED` marker: the kernel says our view of one
@@ -118,6 +133,7 @@ impl InputStats {
             key_releases: self.key_releases.load(Ordering::Relaxed),
             repeats_ignored: self.repeats_ignored.load(Ordering::Relaxed),
             unknown_keys: self.unknown_keys.load(Ordering::Relaxed),
+            missing_sounds: self.missing_sounds.load(Ordering::Relaxed),
             sync_dropped: self.sync_dropped.load(Ordering::Relaxed),
             commands_generated: self.commands_generated.load(Ordering::Relaxed),
             commands_dropped: self.commands_dropped.load(Ordering::Relaxed),
@@ -149,6 +165,8 @@ pub struct InputStatsSnapshot {
     pub key_releases: u64,
     pub repeats_ignored: u64,
     pub unknown_keys: u64,
+    /// Presses the selected pack had no clip for (never substituted).
+    pub missing_sounds: u64,
     pub sync_dropped: u64,
     pub commands_generated: u64,
     pub commands_dropped: u64,
@@ -170,6 +188,7 @@ impl InputStatsSnapshot {
              Releases: {}\n\
              Repeats ignored: {}\n\
              Unknown keys: {}\n\
+             Presses with no pack sound: {}\n\
              SYN_DROPPED: {}\n\
              Commands generated: {}\n\
              Commands dropped: {}\n\
@@ -186,6 +205,7 @@ impl InputStatsSnapshot {
             self.key_releases,
             self.repeats_ignored,
             self.unknown_keys,
+            self.missing_sounds,
             self.sync_dropped,
             self.commands_generated,
             self.commands_dropped,

@@ -18,12 +18,14 @@ pub struct PackPlayer {
     left_gain: f32,
     right_gain: f32,
     spatial: bool,
+    release_enabled: bool,
 }
 
 impl PackPlayer {
     /// Creates a player for `pack` rendering at `output_rate`.
     ///
     /// Stereo spatialization is on by default; see [`spatial`](Self::spatial).
+    /// Release sounds are off by default; see [`release_sounds`](Self::release_sounds).
     pub fn new(pack: Arc<KvPack>, output_rate: u32) -> Self {
         Self {
             pack,
@@ -31,6 +33,7 @@ impl PackPlayer {
             left_gain: 1.0,
             right_gain: 1.0,
             spatial: true,
+            release_enabled: false,
         }
     }
 
@@ -47,6 +50,7 @@ impl PackPlayer {
             left_gain,
             right_gain,
             spatial: true,
+            release_enabled: false,
         }
     }
 
@@ -60,9 +64,25 @@ impl PackPlayer {
         self
     }
 
+    /// Enables or disables release sounds (the pack's version 2 release
+    /// clips, played when a key is let go).
+    ///
+    /// This is the runtime switch behind the `release_sounds` config flag.
+    /// When disabled the pack's release table is simply never consulted.
+    pub fn release_sounds(&mut self, enabled: bool) -> &mut Self {
+        self.release_enabled = enabled;
+        self
+    }
+
     /// Whether key-position spatialization is applied.
     pub fn is_spatial(&self) -> bool {
         self.spatial
+    }
+
+    /// Whether release sounds are played (the setting, not the pack's
+    /// contents: see [`KvPack::has_release_sounds`](kv_pack::KvPack::has_release_sounds)).
+    pub fn release_sounds_enabled(&self) -> bool {
+        self.release_enabled
     }
 
     /// The pack this player reads samples from.
@@ -80,6 +100,30 @@ impl SoundSource for PackPlayer {
     #[inline]
     fn play(&self, key: PhysicalKey, state: &mut VariantState) -> Option<PlayCommand> {
         let mut command = self.pack.play_command(
+            key,
+            state,
+            self.output_rate,
+            self.left_gain,
+            self.right_gain,
+        )?;
+
+        if self.spatial {
+            let pan = KeyGeometry::default_position(key).calculate_pan();
+            let (left, right) = KeyGeometry::pan_to_gains(pan);
+            command.left_gain *= left;
+            command.right_gain *= right;
+        }
+
+        Some(command)
+    }
+
+    #[inline]
+    fn play_release(&self, key: PhysicalKey, state: &mut VariantState) -> Option<PlayCommand> {
+        if !self.release_enabled {
+            return None;
+        }
+
+        let mut command = self.pack.release_command(
             key,
             state,
             self.output_rate,

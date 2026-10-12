@@ -22,6 +22,10 @@ pub struct Header {
     pub sample_rate: u32,
     pub channels: u16,
     pub sample_format: u16,
+    /// Offset of the release table (version 2 only; zero in version 1).
+    pub release_table_offset: u64,
+    /// Size of the release table in bytes (version 2 only; zero in version 1).
+    pub release_table_size: u32,
 }
 
 impl Header {
@@ -83,17 +87,58 @@ impl Header {
         let channels = u16::from_le_bytes([data[88], data[89]]);
         let sample_format = u16::from_le_bytes([data[90], data[91]]);
 
-        // Check reserved bytes are zero
-        for &byte in data[92..120].iter() {
+        // Check reserved bytes are zero. Version 2 reuses the first 12 of the
+        // 28 reserved bytes for the release table pointer; the tail stays zero.
+        for &byte in data[RESERVED_TAIL_ZERO..HEADER_SIZE as usize].iter() {
             if byte != 0 {
                 return Err(PackError::ReservedNotZero("reserved"));
             }
         }
 
         // Validate version
-        if format_version != FORMAT_VERSION {
-            return Err(PackError::UnsupportedVersion(format_version));
-        }
+        let (release_table_offset, release_table_size) = match format_version {
+            FORMAT_VERSION => {
+                for &byte in data[RELEASE_TABLE_OFFSET_FIELD..RESERVED_TAIL_ZERO].iter() {
+                    if byte != 0 {
+                        return Err(PackError::ReservedNotZero("release_table"));
+                    }
+                }
+                (0u64, 0u32)
+            }
+            FORMAT_VERSION_RELEASE => {
+                let offset = u64::from_le_bytes([
+                    data[RELEASE_TABLE_OFFSET_FIELD],
+                    data[RELEASE_TABLE_OFFSET_FIELD + 1],
+                    data[RELEASE_TABLE_OFFSET_FIELD + 2],
+                    data[RELEASE_TABLE_OFFSET_FIELD + 3],
+                    data[RELEASE_TABLE_OFFSET_FIELD + 4],
+                    data[RELEASE_TABLE_OFFSET_FIELD + 5],
+                    data[RELEASE_TABLE_OFFSET_FIELD + 6],
+                    data[RELEASE_TABLE_OFFSET_FIELD + 7],
+                ]);
+                let size = u32::from_le_bytes([
+                    data[RELEASE_TABLE_SIZE_FIELD],
+                    data[RELEASE_TABLE_SIZE_FIELD + 1],
+                    data[RELEASE_TABLE_SIZE_FIELD + 2],
+                    data[RELEASE_TABLE_SIZE_FIELD + 3],
+                ]);
+                if size % RELEASE_ENTRY_SIZE as u32 != 0 {
+                    return Err(PackError::InvalidLength {
+                        field: "release_table_size",
+                        length: size as u64,
+                    });
+                }
+                let entries = size / RELEASE_ENTRY_SIZE as u32;
+                if entries > MAX_KEYS {
+                    return Err(PackError::InvalidLength {
+                        field: "release_table_size",
+                        length: size as u64,
+                    });
+                }
+                (offset, size)
+            }
+            _ => return Err(PackError::UnsupportedVersion(format_version)),
+        };
 
         // Validate header size
         if header_size != HEADER_SIZE {
@@ -200,6 +245,26 @@ impl Header {
             file_size,
         )?;
 
+        // An empty release table must not carry a stray pointer; a populated
+        // one must sit entirely inside the file.
+        if release_table_size == 0 {
+            if release_table_offset != 0 {
+                return Err(PackError::InvalidOffset {
+                    field: "release_table_offset",
+                    offset: release_table_offset,
+                    file_size,
+                });
+            }
+        } else {
+            Self::validate_offset("release_table_offset", release_table_offset, file_size)?;
+            Self::validate_region(
+                "release_table",
+                release_table_offset,
+                release_table_size as u64,
+                file_size,
+            )?;
+        }
+
         Ok(Self {
             format_version,
             flags,
@@ -217,6 +282,8 @@ impl Header {
             sample_rate,
             channels,
             sample_format,
+            release_table_offset,
+            release_table_size,
         })
     }
 

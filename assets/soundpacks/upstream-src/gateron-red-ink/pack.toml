@@ -1,0 +1,538 @@
+[pack]
+name = "Gateron Red Ink"
+author = "kbsim by Thomas Lai · MIT License"
+version = "1.0.0"
+description = "linear mechanical switch pack converted from rustyvibes-v2/kbsim/redink"
+license = "MIT"
+source = "rustyvibes-v2/kbsim/redink"
+category = "linear"
+sample_rate = 44100
+
+[samples]
+format = "wav"
+
+[processing]
+# The importer already trimmed, normalised and dithered these clips
+# exactly the way upstream's pack pipeline does. Building with
+# processing disabled stores them verbatim (guard samples aside).
+enabled = false
+
+[[keys]]
+physical_key = "Escape"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F1"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F2"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F3"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F4"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F5"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F6"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F7"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F8"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F9"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F10"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F11"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F12"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Grave"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit1"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit2"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit3"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit4"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit5"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit6"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit7"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit8"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit9"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Digit0"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Minus"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Equal"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Backspace"
+samples = ["slices/press_BACKSPACE.wav"]
+release_samples = ["slices/release_BACKSPACE.wav"]
+
+[[keys]]
+physical_key = "Tab"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Q"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "W"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "E"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "R"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "T"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Y"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "U"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "I"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "O"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "P"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "LeftBracket"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "RightBracket"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Backslash"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "CapsLock"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "A"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "S"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "D"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "F"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "G"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "H"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "J"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "K"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "L"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Semicolon"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Apostrophe"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Enter"
+samples = ["slices/press_ENTER.wav"]
+release_samples = ["slices/release_ENTER.wav"]
+
+[[keys]]
+physical_key = "LeftShift"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Z"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "X"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "C"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "V"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "B"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "N"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "M"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Comma"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Period"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Slash"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "RightShift"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "LeftCtrl"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "LeftSuper"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "LeftAlt"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Space"
+samples = ["slices/press_SPACE.wav"]
+release_samples = ["slices/release_SPACE.wav"]
+
+[[keys]]
+physical_key = "RightAlt"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "RightSuper"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Menu"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "RightCtrl"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Insert"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Delete"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Home"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "End"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "PageUp"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "PageDown"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "ArrowUp"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "ArrowDown"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "ArrowLeft"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "ArrowRight"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "NumLock"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "NumpadDivide"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "NumpadMultiply"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "NumpadSubtract"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "NumpadAdd"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "NumpadEnter"
+samples = ["slices/press_ENTER.wav"]
+release_samples = ["slices/release_ENTER.wav"]
+
+[[keys]]
+physical_key = "NumpadDecimal"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad0"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad1"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad2"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad3"
+samples = ["slices/press_GENERIC_R4.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad4"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad5"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad6"
+samples = ["slices/press_GENERIC_R3.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad7"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad8"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Numpad9"
+samples = ["slices/press_GENERIC_R2.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "PrintScreen"
+samples = ["slices/press_GENERIC_R0.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "ScrollLock"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]
+
+[[keys]]
+physical_key = "Pause"
+samples = ["slices/press_GENERIC_R1.wav"]
+release_samples = ["slices/release_GENERIC.wav"]

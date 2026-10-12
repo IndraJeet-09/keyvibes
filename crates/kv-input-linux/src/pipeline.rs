@@ -302,6 +302,12 @@ where
                         stats.increment_command_generated();
                         stats.record_command_latency(kv_core::monotonic_ns() - started_ns);
                     }
+                } else {
+                    // The pack carries no clip for this key. The press is
+                    // counted and stays silent - it is never served another
+                    // key's sound - so `keyvibes doctor` and the stats dump
+                    // can show exactly which presses produced nothing.
+                    stats.increment_missing_sound();
                 }
             }
             EventResult::Release(physical_key) => {
@@ -309,6 +315,27 @@ where
                     *held_total = held_total.saturating_sub(1);
                 }
                 stats.increment_release();
+
+                // Release sounds are optional: a pack without them (or with
+                // the setting off) makes `play_release` return None, and the
+                // release stays silent. Nothing is ever substituted, and a
+                // silent release is not counted as a missing sound - that
+                // counter is specifically about presses that produced nothing.
+                let started_ns = kv_core::monotonic_ns();
+                let variant = state.variant_mut(physical_key);
+                if let Some(cmd) = source.play_release(physical_key, variant) {
+                    if let Some(wake) = wake.as_ref() {
+                        wake.wake();
+                    }
+                    let outcome = queue.push(cmd.stamped(kv_core::monotonic_ns()));
+                    source.queued(cmd);
+                    if outcome.is_err() {
+                        stats.increment_command_dropped();
+                    } else {
+                        stats.increment_command_generated();
+                        stats.record_command_latency(kv_core::monotonic_ns() - started_ns);
+                    }
+                }
             }
             EventResult::Repeat => stats.increment_repeat_ignored(),
             EventResult::Unknown => stats.increment_unknown(),
@@ -721,5 +748,147 @@ fn apply_command<S>(
             devices.remove(&path);
             attached.store(registry.len(), Ordering::Relaxed);
         }
+    }
+}
+
+/// The regression tests for "that key made no sound": the event mapping is
+/// complete, so the only remaining cause is a pack with no clip for the key -
+/// and that must be *counted and silent*, never served from another key.
+#[cfg(test)]
+mod missing_sound_tests {
+    use super::*;
+    use crate::discovery::KeyboardInfo;
+    use evdev::{EventType, InputEvent, KeyCode as Key};
+
+    /// A pack that carries `A` and nothing else - the shape of the defect
+    /// these tests exist for.
+    struct AOnlySource {
+        clip: Vec<i16>,
+    }
+
+    impl SoundSource for AOnlySource {
+        fn play(&self, key: PhysicalKey, _state: &mut VariantState) -> Option<PlayCommand> {
+            if key != PhysicalKey::A {
+                return None;
+            }
+            // SAFETY: `clip` is owned by the source and outlives every
+            // command built from it, which is the trait's contract.
+            Some(unsafe {
+                PlayCommand::new(
+                    self.clip.as_ptr(),
+                    self.clip.len() as u32,
+                    48_000,
+                    1 << 32,
+                    1.0,
+                    1.0,
+                    false,
+                )
+            })
+        }
+    }
+
+    fn registry() -> (
+        DeviceRegistry<AOnlySource>,
+        Arc<SpscRing<PlayCommand>>,
+        Arc<InputStats>,
+        PathBuf,
+    ) {
+        let queue = Arc::new(SpscRing::with_capacity(64));
+        let stats = Arc::new(InputStats::new());
+        let source = Arc::new(AOnlySource {
+            clip: (0..512).map(|i| (i % 64) as i16 - 32).collect(),
+        });
+        let mut registry = DeviceRegistry::new(source, queue.clone(), stats.clone());
+        let path = PathBuf::from("/dev/input/event-test");
+        assert!(registry.attach(&KeyboardInfo {
+            path: path.clone(),
+            name: "test keyboard".to_string(),
+            phys: None,
+        }));
+        (registry, queue, stats, path)
+    }
+
+    fn press(registry: &mut DeviceRegistry<AOnlySource>, path: &Path, code: Key) {
+        registry.handle_event(path, &InputEvent::new(EventType::KEY.0, code.code(), 1));
+        registry.handle_event(path, &InputEvent::new(EventType::SYNCHRONIZATION.0, 0, 0));
+    }
+
+    #[test]
+    fn a_press_the_pack_cannot_serve_is_counted_and_queues_nothing() {
+        let (mut registry, queue, stats, path) = registry();
+
+        // KEY_S maps correctly (mapping is complete) but this pack has no
+        // clip for S.
+        press(&mut registry, &path, Key::KEY_S);
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.key_presses, 1, "the press itself was received");
+        assert_eq!(
+            snapshot.missing_sounds, 1,
+            "an unserved press must be counted so doctor can show it"
+        );
+        assert_eq!(
+            snapshot.commands_generated, 0,
+            "an unserved press must produce no command"
+        );
+        assert!(
+            queue.pop().is_none(),
+            "an unserved press must never reach the mixer"
+        );
+    }
+
+    #[test]
+    fn a_key_the_pack_does_carry_is_not_counted_as_missing() {
+        let (mut registry, queue, stats, path) = registry();
+
+        press(&mut registry, &path, Key::KEY_A);
+        press(&mut registry, &path, Key::KEY_S);
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.key_presses, 2);
+        assert_eq!(
+            snapshot.missing_sounds, 1,
+            "only the key with no clip is missing"
+        );
+        assert_eq!(snapshot.commands_generated, 1, "A's clip was queued");
+        assert!(queue.pop().is_some());
+    }
+
+    #[test]
+    fn repeats_releases_and_unknown_keys_do_not_inflate_the_counter() {
+        let (mut registry, _queue, stats, path) = registry();
+
+        press(&mut registry, &path, Key::KEY_S); // missing: 1
+        registry.handle_event(
+            &path,
+            &InputEvent::new(EventType::KEY.0, Key::KEY_S.code(), 2),
+        );
+        registry.handle_event(
+            &path,
+            &InputEvent::new(EventType::KEY.0, Key::KEY_S.code(), 0),
+        );
+        registry.handle_event(&path, &InputEvent::new(EventType::KEY.0, 0x2FF, 1));
+        press(&mut registry, &path, Key::KEY_S); // missing: 2
+
+        let snapshot = stats.snapshot();
+        assert_eq!(
+            snapshot.missing_sounds, 2,
+            "only real presses the pack cannot serve are counted"
+        );
+        assert_eq!(snapshot.repeats_ignored, 1);
+        assert_eq!(snapshot.key_releases, 1);
+        assert_eq!(snapshot.unknown_keys, 1);
+    }
+
+    #[test]
+    fn the_stats_line_a_user_reads_names_the_count() {
+        let (_registry, _queue, stats, _path) = registry();
+        stats.increment_missing_sound();
+
+        let text = stats.snapshot().format();
+        assert!(
+            text.contains("Presses with no pack sound: 1"),
+            "the human-facing line must name the count, got:\n{text}"
+        );
     }
 }

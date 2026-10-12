@@ -57,6 +57,11 @@ const WRITE_ALLOWLIST: &[&str] = &[
     "crates/keyvibes/src/audio_recovery_test.rs",
     "crates/keyvibes/src/hotplug_test.rs",
     "crates/keyvibes/src/acceptance_test.rs",
+    // Cargo tests that build the committed pack into a scratch directory.
+    "crates/keyvibes/src/production_pack_test.rs",
+    // Cargo tests: scratch packs and manifests, all removed afterwards.
+    "crates/keyvibes/tests/diagnostics.rs",
+    "crates/kv-pack/tests/key_coverage.rs",
 ];
 
 /// Crates whose source must never log a key event.
@@ -87,6 +92,8 @@ const COMMAND_ALLOWLIST: &[&str] = &[
     // Re-executes `keyvibes security-test` so the whole-product acceptance
     // runs the same audit rather than a second copy of it.
     "acceptance_test.rs",
+    // Cargo tests that drive the shipped binary to check its diagnostics.
+    "crates/keyvibes/tests/diagnostics.rs",
 ];
 
 /// Crates that may be absent from the dependency graph, checked transitively.

@@ -39,15 +39,44 @@ pub fn search_dirs() -> Vec<PathBuf> {
 
 /// Every `.kvpack` reachable from [`search_dirs`], in search order.
 pub fn discover() -> Vec<PathBuf> {
+    discover_in(&search_dirs())
+}
+
+/// Whether `path` is a test fixture rather than a shippable pack.
+///
+/// Fixtures live under a `tests/fixtures` directory - the layout this
+/// repository uses for `crates/kv-pack/tests/fixtures` - or are named
+/// `golden*`. Production discovery skips them, so a checkout that happens to
+/// have one lying around can never become the default pack (or show up in
+/// `pack list` looking installed). An explicit `--pack <path>` still opens
+/// whatever the user points at: the guard is about *selection*, not access.
+pub fn is_test_fixture(path: &Path) -> bool {
+    let fixtures = path
+        .components()
+        .any(|component| component.as_os_str().eq_ignore_ascii_case("fixtures"));
+    let golden = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| stem.to_lowercase().starts_with("golden"));
+    fixtures || golden
+}
+
+/// [`discover`] over an explicit list of directories.
+///
+/// Split out so the fixture filter can be tested without touching
+/// `$KEYVIBES_PACK_DIR` (which would race with every other test in the
+/// binary).
+pub fn discover_in(dirs: &[PathBuf]) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    for dir in search_dirs() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
         };
         let mut here: Vec<PathBuf> = entries
             .flatten()
             .map(|entry| entry.path())
             .filter(|path| path.extension().is_some_and(|ext| ext == "kvpack"))
+            .filter(|path| !is_test_fixture(path))
             .collect();
         here.sort();
         found.extend(here);
@@ -89,6 +118,25 @@ pub fn discover_unique() -> Vec<PathBuf> {
 /// first discovered pack is taken. Errors carry the directories that were
 /// searched so the user can act on them.
 pub fn resolve(explicit: Option<&Path>) -> Result<PathBuf> {
+    resolve_from(
+        explicit,
+        std::env::var_os("KEYVIBES_PACK").map(PathBuf::from),
+        &discover(),
+    )
+}
+
+/// [`resolve`] with its three inputs handed in, so the default-selection rule
+/// can be tested without touching the environment.
+///
+/// `env_pack` is `$KEYVIBES_PACK`; `discovered` is whatever the search
+/// directories produced (test fixtures already filtered out). Selection is
+/// "explicit path, then `$KEYVIBES_PACK`, then the first discovered pack" -
+/// and *first discovered* can only be a real installed pack, never a fixture.
+pub fn resolve_from(
+    explicit: Option<&Path>,
+    env_pack: Option<PathBuf>,
+    discovered: &[PathBuf],
+) -> Result<PathBuf> {
     if let Some(path) = explicit {
         if !path.exists() {
             bail!("pack not found: {}", path.display());
@@ -96,8 +144,7 @@ pub fn resolve(explicit: Option<&Path>) -> Result<PathBuf> {
         return Ok(path.to_path_buf());
     }
 
-    if let Some(path) = std::env::var_os("KEYVIBES_PACK") {
-        let path = PathBuf::from(path);
+    if let Some(path) = env_pack {
         if !path.exists() {
             bail!(
                 "$KEYVIBES_PACK points at a missing file: {}",
@@ -107,8 +154,7 @@ pub fn resolve(explicit: Option<&Path>) -> Result<PathBuf> {
         return Ok(path);
     }
 
-    let found = discover();
-    let first = found.first().context(no_pack_message())?;
+    let first = discovered.first().context(no_pack_message())?;
     Ok(first.clone())
 }
 
@@ -246,6 +292,106 @@ mod tests {
             names.len(),
             "the same pack was listed twice: {names:?}"
         );
+    }
+
+    /// Scratch directory holding whatever files the caller names in `files`.
+    fn scratch(name: &str, files: &[&str]) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("keyvibes-locate-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for file in files {
+            let path = dir.join(file);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&path, b"KVPACK\x00\x00 not a real pack").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn fixture_paths_are_recognised() {
+        assert!(is_test_fixture(Path::new(
+            "/repo/crates/kv-pack/tests/fixtures/golden.kvpack"
+        )));
+        assert!(is_test_fixture(Path::new("/tmp/golden.kvpack")));
+        assert!(is_test_fixture(Path::new(
+            "/home/me/.local/share/keyvibes/packs/fixtures/old.kvpack"
+        )));
+        assert!(!is_test_fixture(Path::new(
+            "/home/me/.local/share/keyvibes/packs/Default.kvpack"
+        )));
+        assert!(!is_test_fixture(Path::new(
+            "/repo/assets/soundpacks/Holy Panda.kvpack"
+        )));
+    }
+
+    #[test]
+    fn discovery_lists_installed_packs_and_skips_fixtures() {
+        let dir = scratch(
+            "discover",
+            &["Default.kvpack", "fixtures/golden.kvpack", "Golden.kvpack"],
+        );
+        let found = discover_in(std::slice::from_ref(&dir));
+        let names: Vec<String> = found
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["Default.kvpack".to_string()],
+            "found: {names:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_default_selection_refuses_a_directory_of_fixtures() {
+        let dir = scratch(
+            "fixtures-only",
+            &["fixtures/golden.kvpack", "golden.kvpack"],
+        );
+        let discovered = discover_in(std::slice::from_ref(&dir));
+
+        let error = resolve_from(None, None, &discovered)
+            .expect_err("a directory of test fixtures must not become the default pack");
+        let text = error.to_string();
+        // The wording depends on what else is installed on this machine; the
+        // property does not - an empty discovery is an error, never a pick.
+        assert!(
+            text.contains("no sound pack is installed") || text.contains("no .kvpack matched"),
+            "expected the 'nothing to choose' diagnosis, got: {text}"
+        );
+
+        // An explicit path is the user's own decision and still works.
+        let explicit = dir.join("golden.kvpack");
+        assert!(resolve_from(Some(&explicit), None, &discovered).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_default_selection_takes_the_first_installed_pack() {
+        let dir = scratch("installed", &["Alpha.kvpack", "Beta.kvpack"]);
+        let discovered = discover_in(std::slice::from_ref(&dir));
+        let selected = resolve_from(None, None, &discovered).expect("two packs are installed");
+        assert_eq!(
+            selected.file_name().unwrap().to_string_lossy(),
+            "Alpha.kvpack",
+            "search order, not alphabetical luck"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nothing_discovered_in_this_checkout_is_a_fixture() {
+        for path in discover() {
+            assert!(
+                !is_test_fixture(&path),
+                "production discovery returned a test fixture: {}",
+                path.display()
+            );
+        }
     }
 
     #[test]

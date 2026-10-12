@@ -150,6 +150,16 @@ pub trait SoundSource {
     /// Builds the command for `key`, or `None` if the key has no sound.
     fn play(&self, key: PhysicalKey, state: &mut VariantState) -> Option<PlayCommand>;
 
+    /// Builds the **release** command for `key`, or `None` if the key has no
+    /// release sound (or the source has no release support at all).
+    ///
+    /// A press-sound source with no release clips keeps the default
+    /// implementation, which returns `None`; the pipeline then treats the
+    /// release as silent and counts nothing.
+    fn play_release(&self, _key: PhysicalKey, _state: &mut VariantState) -> Option<PlayCommand> {
+        None
+    }
+
     /// Called once a command returned by [`play`](Self::play) has been
     /// handed to the audio queue - or dropped because the queue was full.
     ///

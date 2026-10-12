@@ -1,0 +1,426 @@
+[pack]
+name = "Cherry MX Red PBT"
+author = "Mechvibes by Hai Nguyen · MIT License"
+version = "1.0.0"
+description = "PBT mechanical switch pack converted from rustyvibes-v2/mechvibes/cherrymx-red-pbt"
+license = "MIT"
+source = "rustyvibes-v2/mechvibes/cherrymx-red-pbt"
+category = "linear"
+sample_rate = 44100
+
+[samples]
+format = "wav"
+
+[processing]
+# The importer already trimmed, normalised and dithered these clips
+# exactly the way upstream's pack pipeline does. Building with
+# processing disabled stores them verbatim (guard samples aside).
+enabled = false
+
+[[keys]]
+physical_key = "Escape"
+samples = ["slices/code1_147250_155497.wav"]
+
+[[keys]]
+physical_key = "F1"
+samples = ["slices/code59_171020_177679.wav"]
+
+[[keys]]
+physical_key = "F2"
+samples = ["slices/code60_191703_199156.wav"]
+
+[[keys]]
+physical_key = "F3"
+samples = ["slices/code61_212782_220103.wav"]
+
+[[keys]]
+physical_key = "F4"
+samples = ["slices/code62_232495_239154.wav"]
+
+[[keys]]
+physical_key = "F5"
+samples = ["slices/code63_253002_259925.wav"]
+
+[[keys]]
+physical_key = "F6"
+samples = ["slices/code64_272273_292908.wav"]
+
+[[keys]]
+physical_key = "F7"
+samples = ["slices/code65_292604_301335.wav"]
+
+[[keys]]
+physical_key = "F8"
+samples = ["slices/code66_312581_320783.wav"]
+
+[[keys]]
+physical_key = "F9"
+samples = ["slices/code67_334190_342789.wav"]
+
+[[keys]]
+physical_key = "F10"
+samples = ["slices/code68_352315_362105.wav"]
+
+[[keys]]
+physical_key = "F11"
+samples = ["slices/code87_373395_382435.wav"]
+
+[[keys]]
+physical_key = "F12"
+samples = ["slices/code88_395048_403427.wav"]
+
+[[keys]]
+physical_key = "Grave"
+samples = ["slices/code41_496786_504680.wav"]
+
+[[keys]]
+physical_key = "Digit1"
+samples = ["slices/code2_514779_520821.wav"]
+
+[[keys]]
+physical_key = "Digit2"
+samples = ["slices/code3_536918_543224.wav"]
+
+[[keys]]
+physical_key = "Digit3"
+samples = ["slices/code4_555704_563863.wav"]
+
+[[keys]]
+physical_key = "Digit4"
+samples = ["slices/code5_575770_582473.wav"]
+
+[[keys]]
+physical_key = "Digit5"
+samples = ["slices/code6_595879_602494.wav"]
+
+[[keys]]
+physical_key = "Digit6"
+samples = ["slices/code7_613828_620884.wav"]
+
+[[keys]]
+physical_key = "Digit7"
+samples = ["slices/code8_635525_642008.wav"]
+
+[[keys]]
+physical_key = "Digit8"
+samples = ["slices/code9_655017_663044.wav"]
+
+[[keys]]
+physical_key = "Digit9"
+samples = ["slices/code10_676053_683197.wav"]
+
+[[keys]]
+physical_key = "Digit0"
+samples = ["slices/code11_695501_703527.wav"]
+
+[[keys]]
+physical_key = "Minus"
+samples = ["slices/code12_715082_722049.wav"]
+
+[[keys]]
+physical_key = "Equal"
+samples = ["slices/code13_734794_742291.wav"]
+
+[[keys]]
+physical_key = "Backspace"
+samples = ["slices/code14_752655_761783.wav"]
+
+[[keys]]
+physical_key = "Tab"
+samples = ["slices/code15_852321_860964.wav"]
+
+[[keys]]
+physical_key = "Q"
+samples = ["slices/code16_869520_876267.wav"]
+
+[[keys]]
+physical_key = "W"
+samples = ["slices/code17_888350_895362.wav"]
+
+[[keys]]
+physical_key = "E"
+samples = ["slices/code18_906520_913135.wav"]
+
+[[keys]]
+physical_key = "R"
+samples = ["slices/code19_924601_931568.wav"]
+
+[[keys]]
+physical_key = "T"
+samples = ["slices/code20_942461_950972.wav"]
+
+[[keys]]
+physical_key = "Y"
+samples = ["slices/code21_962968_971170.wav"]
+
+[[keys]]
+physical_key = "U"
+samples = ["slices/code22_983562_990751.wav"]
+
+[[keys]]
+physical_key = "I"
+samples = ["slices/code23_1002128_1010860.wav"]
+
+[[keys]]
+physical_key = "O"
+samples = ["slices/code24_1023032_1030529.wav"]
+
+[[keys]]
+physical_key = "P"
+samples = ["slices/code25_1042656_1050065.wav"]
+
+[[keys]]
+physical_key = "LeftBracket"
+samples = ["slices/code26_1061575_1069469.wav"]
+
+[[keys]]
+physical_key = "RightBracket"
+samples = ["slices/code27_1081641_1089358.wav"]
+
+[[keys]]
+physical_key = "Backslash"
+samples = ["slices/code43_1100956_1109600.wav"]
+
+[[keys]]
+physical_key = "CapsLock"
+samples = ["slices/code58_1207105_1215484.wav"]
+
+[[keys]]
+physical_key = "A"
+samples = ["slices/code30_1226112_1233080.wav"]
+
+[[keys]]
+physical_key = "S"
+samples = ["slices/code31_1247765_1254424.wav"]
+
+[[keys]]
+physical_key = "D"
+samples = ["slices/code32_1266376_1274225.wav"]
+
+[[keys]]
+physical_key = "F"
+samples = ["slices/code33_1285868_1293894.wav"]
+
+[[keys]]
+physical_key = "G"
+samples = ["slices/code34_1303728_1310608.wav"]
+
+[[keys]]
+physical_key = "H"
+samples = ["slices/code35_1325337_1332173.wav"]
+
+[[keys]]
+physical_key = "J"
+samples = ["slices/code36_1344036_1350562.wav"]
+
+[[keys]]
+physical_key = "K"
+samples = ["slices/code37_1364674_1371510.wav"]
+
+[[keys]]
+physical_key = "L"
+samples = ["slices/code38_1383505_1391090.wav"]
+
+[[keys]]
+physical_key = "Semicolon"
+samples = ["slices/code39_1402909_1411200.wav"]
+
+[[keys]]
+physical_key = "Apostrophe"
+samples = ["slices/code40_1423989_1432809.wav"]
+
+[[keys]]
+physical_key = "Enter"
+samples = ["slices/code28_1443569_1453712.wav"]
+
+[[keys]]
+physical_key = "LeftShift"
+samples = ["slices/code42_1489389_1499312.wav"]
+
+[[keys]]
+physical_key = "Z"
+samples = ["slices/code44_1508705_1514835.wav"]
+
+[[keys]]
+physical_key = "X"
+samples = ["slices/code45_1526874_1533666.wav"]
+
+[[keys]]
+physical_key = "C"
+samples = ["slices/code46_1542662_1550336.wav"]
+
+[[keys]]
+physical_key = "V"
+samples = ["slices/code47_1563257_1570136.wav"]
+
+[[keys]]
+physical_key = "B"
+samples = ["slices/code48_1581867_1590158.wav"]
+
+[[keys]]
+physical_key = "N"
+samples = ["slices/code49_1601271_1608768.wav"]
+
+[[keys]]
+physical_key = "M"
+samples = ["slices/code50_1619132_1627422.wav"]
+
+[[keys]]
+physical_key = "Comma"
+samples = ["slices/code51_1638315_1645592.wav"]
+
+[[keys]]
+physical_key = "Period"
+samples = ["slices/code52_1657146_1664951.wav"]
+
+[[keys]]
+physical_key = "Slash"
+samples = ["slices/code53_1676902_1684532.wav"]
+
+[[keys]]
+physical_key = "RightShift"
+samples = ["slices/code54_1696836_1704774.wav"]
+
+[[keys]]
+physical_key = "LeftCtrl"
+samples = ["slices/code29_1772423_1780273.wav"]
+
+[[keys]]
+physical_key = "LeftSuper"
+samples = ["slices/code3675_1789931_1798045.wav"]
+
+[[keys]]
+physical_key = "LeftAlt"
+samples = ["slices/code56_1807438_1815156.wav"]
+
+[[keys]]
+physical_key = "Space"
+samples = ["slices/code57_2100086_2113316.wav"]
+
+[[keys]]
+physical_key = "RightAlt"
+samples = ["slices/code3640_1868385_1876940.wav"]
+
+[[keys]]
+physical_key = "RightSuper"
+samples = ["slices/code3676_1904944_1913896.wav"]
+
+[[keys]]
+physical_key = "Menu"
+samples = ["slices/code3613_1923774_1931492.wav"]
+
+[[keys]]
+physical_key = "RightCtrl"
+samples = ["slices/code3613_1923774_1931492.wav"]
+
+[[keys]]
+physical_key = "Insert"
+samples = ["slices/code71_774749_781717.wav"]
+
+[[keys]]
+physical_key = "Delete"
+samples = ["slices/code75_1122830_1130636.wav"]
+
+[[keys]]
+physical_key = "Home"
+samples = ["slices/code72_793800_802400.wav"]
+
+[[keys]]
+physical_key = "End"
+samples = ["slices/code76_1141661_1150172.wav"]
+
+[[keys]]
+physical_key = "PageUp"
+samples = ["slices/code73_812013_819334.wav"]
+
+[[keys]]
+physical_key = "PageDown"
+samples = ["slices/code77_1162167_1171428.wav"]
+
+[[keys]]
+physical_key = "ArrowUp"
+samples = ["slices/code83_1721840_1730043.wav"]
+
+[[keys]]
+physical_key = "ArrowDown"
+samples = ["slices/code80_1962935_1970785.wav"]
+
+[[keys]]
+physical_key = "ArrowLeft"
+samples = ["slices/code79_1943663_1951381.wav"]
+
+[[keys]]
+physical_key = "ArrowRight"
+samples = ["slices/code81_1984015_1991909.wav"]
+
+[[keys]]
+physical_key = "NumLock"
+samples = ["slices/code69_416966_424374.wav"]
+
+[[keys]]
+physical_key = "NumpadDivide"
+samples = ["slices/code70_438134_444528.wav"]
+
+[[keys]]
+physical_key = "NumpadMultiply"
+samples = ["slices/code55_455068_464505.wav"]
+
+[[keys]]
+physical_key = "NumpadSubtract"
+samples = ["slices/code12_715082_722049.wav"]
+
+[[keys]]
+physical_key = "NumpadAdd"
+samples = ["slices/code14_752655_761783.wav"]
+
+[[keys]]
+physical_key = "NumpadEnter"
+samples = ["slices/code28_1443569_1453712.wav"]
+
+[[keys]]
+physical_key = "NumpadDecimal"
+samples = ["slices/code83_1721840_1730043.wav"]
+
+[[keys]]
+physical_key = "Numpad0"
+samples = ["slices/code54_1696836_1704774.wav"]
+
+[[keys]]
+physical_key = "Numpad1"
+samples = ["slices/code79_1943663_1951381.wav"]
+
+[[keys]]
+physical_key = "Numpad2"
+samples = ["slices/code80_1962935_1970785.wav"]
+
+[[keys]]
+physical_key = "Numpad3"
+samples = ["slices/code81_1984015_1991909.wav"]
+
+[[keys]]
+physical_key = "Numpad4"
+samples = ["slices/code75_1122830_1130636.wav"]
+
+[[keys]]
+physical_key = "Numpad5"
+samples = ["slices/code76_1141661_1150172.wav"]
+
+[[keys]]
+physical_key = "Numpad6"
+samples = ["slices/code77_1162167_1171428.wav"]
+
+[[keys]]
+physical_key = "Numpad7"
+samples = ["slices/code71_774749_781717.wav"]
+
+[[keys]]
+physical_key = "Numpad8"
+samples = ["slices/code72_793800_802400.wav"]
+
+[[keys]]
+physical_key = "Numpad9"
+samples = ["slices/code73_812013_819334.wav"]
+
+[[keys]]
+physical_key = "ScrollLock"
+samples = ["slices/code70_438134_444528.wav"]

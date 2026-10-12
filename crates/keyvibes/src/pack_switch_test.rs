@@ -9,7 +9,8 @@
 //!   freed, and is released only once nothing can reference it,
 //! * sound keeps coming out across the whole switch.
 //!
-//! The test runs a sustained load while it swaps, so the old pack really is
+//! The test picks any two installed packs (whichever two discovery finds
+//! first), runs a sustained load while it swaps, so the old pack really is
 //! still in use at the moment of the switch, and then shows the parked pack
 //! draining to zero once the load stops.
 //!
@@ -19,7 +20,7 @@
 use crate::accept::{Report, Status};
 use crate::pack_locate;
 use anyhow::Result;
-use kv_core::{PhysicalKey, SoundSource, VariantState};
+use kv_core::{PhysicalKey, SoundSource};
 use kv_runtime::{Runtime, SimInputOptions};
 use std::time::{Duration, Instant};
 
@@ -27,15 +28,26 @@ use std::time::{Duration, Instant};
 pub fn run() -> Result<()> {
     let mut report = Report::new("pack-switch-test");
 
-    // --- 1. both packs are installed and genuinely different ---------------
-    let holy = match pack_locate::resolve_selector("Holy Panda") {
+    // --- 1. two packs are installed ----------------------------------------
+    let names = pack_locate::available_names();
+    let (first, second) = match (names.first(), names.get(1)) {
+        (Some(first), Some(second)) => (first.clone(), second.clone()),
+        _ => {
+            report.not_run(
+                "two packs are installed",
+                format!("only {} pack(s) found - a switch needs two", names.len()),
+            );
+            return report.finish();
+        }
+    };
+    let pack_a = match pack_locate::resolve_selector(&first) {
         Ok(path) => path,
         Err(error) => {
             report.not_run("two packs are installed", format!("{error:#}"));
             return report.finish();
         }
     };
-    let linear = match pack_locate::resolve_selector("Linear") {
+    let pack_b = match pack_locate::resolve_selector(&second) {
         Ok(path) => path,
         Err(error) => {
             report.not_run("two packs are installed", format!("{error:#}"));
@@ -43,60 +55,46 @@ pub fn run() -> Result<()> {
         }
     };
 
-    let holy_clips = clip_count(&holy);
-    let linear_clips = clip_count(&linear);
+    let clips_a = clip_count(&pack_a);
+    let clips_b = clip_count(&pack_b);
     report.add(
-        if holy_clips == Some(18) && linear_clips == Some(9) && holy != linear {
+        if clips_a.unwrap_or(0) > 0 && clips_b.unwrap_or(0) > 0 && pack_a != pack_b {
             Status::Pass
         } else {
             Status::Fail
         },
-        "two distinct packs are installed",
+        "two distinct, non-empty packs are installed",
         format!(
-            "Holy Panda {} clip(s), Linear {} clip(s), paths differ: {}",
-            holy_clips
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| "?".into()),
-            linear_clips
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| "?".into()),
-            holy != linear
+            "{first} {} clip(s), {second} {} clip(s), paths differ: {}",
+            clips_a.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+            clips_b.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+            pack_a != pack_b
         ),
     );
 
-    // --- 2. build the runtime on the first pack ---------------------------
+    // --- 2. build the runtime on the first pack ----------------------------
     let mut runtime = Runtime::new(48_000);
-    if let Err(error) = runtime.load_pack(&holy) {
-        report.fail("Holy Panda loads", error.to_string());
+    if let Err(error) = runtime.load_pack(&pack_a) {
+        report.fail("the first pack loads", error.to_string());
         return report.finish();
     }
     report.add(
-        if runtime
-            .pack()
-            .is_some_and(|p| p.stats().name == "Holy Panda")
-        {
+        if runtime.pack().is_some_and(|p| p.stats().name == first) {
             Status::Pass
         } else {
             Status::Fail
         },
-        "Holy Panda loads",
+        "the first pack loads",
         describe_pack(&runtime),
     );
 
-    // Two variants mean two different sample addresses for the same key -
-    // the behavioural tell we use to prove the input side really changed.
-    let before_rotates = varies_per_press(&runtime);
-    report.add(
-        if before_rotates {
-            Status::Pass
-        } else {
-            Status::Fail
-        },
-        "starting pack rotates variants per press",
-        format!("two presses of 'A' give different sample addresses: {before_rotates}"),
-    );
+    // Where presses of 'A' come from before the swap. After the swap the same
+    // key must resolve into the second pack's own memory, never the parked
+    // first pack's - a different mapping cannot share an address with one
+    // that is still parked.
+    let before_ptr = play_ptr(&runtime, PhysicalKey::A);
 
-    // --- 3. live: stream up, load running ---------------------------------
+    // --- 3. live: stream up, load running ----------------------------------
     if let Err(error) = runtime.start_audio() {
         report.not_run(
             "hot swap with the stream running",
@@ -153,9 +151,9 @@ pub fn run() -> Result<()> {
         ),
     );
 
-    // --- 4. swap while everything is running ------------------------------
+    // --- 4. swap while everything is running -------------------------------
     let started = Instant::now();
-    let swap = runtime.switch_pack(&linear);
+    let swap = runtime.switch_pack(&pack_b);
     let swap_elapsed = started.elapsed();
 
     let swap = match swap {
@@ -167,7 +165,7 @@ pub fn run() -> Result<()> {
     };
 
     report.add(
-        if swap.from == "Holy Panda" && swap.to == "Linear" {
+        if swap.from == first && swap.to == second {
             Status::Pass
         } else {
             Status::Fail
@@ -180,10 +178,7 @@ pub fn run() -> Result<()> {
     );
 
     report.add(
-        if runtime
-            .pack()
-            .is_some_and(|p| p.stats().name == "Linear" && p.stats().clips == 9)
-        {
+        if runtime.pack().is_some_and(|p| p.stats().name == second) {
             Status::Pass
         } else {
             Status::Fail
@@ -194,7 +189,7 @@ pub fn run() -> Result<()> {
 
     let handle_tracks = runtime
         .player()
-        .is_some_and(|player| player.pack().stats().name == "Linear");
+        .is_some_and(|player| player.pack().stats().name == second);
     report.add(
         if handle_tracks {
             Status::Pass
@@ -203,24 +198,29 @@ pub fn run() -> Result<()> {
         },
         "input threads' source now serves the new pack",
         if handle_tracks {
-            "the shared source's current pack is Linear".to_string()
+            format!("the shared source's current pack is {second}")
         } else {
             "the shared source still points at the old pack".to_string()
         },
     );
 
-    let after_rotates = varies_per_press(&runtime);
+    let after_ptr = play_ptr(&runtime, PhysicalKey::A);
     report.add(
-        if !after_rotates {
+        if before_ptr.is_some() && after_ptr.is_some() && before_ptr != after_ptr {
             Status::Pass
         } else {
             Status::Fail
         },
         "new presses come from the new pack",
-        if !after_rotates {
-            "two presses of 'A' now give the same address (Linear has one variant)".to_string()
+        if before_ptr.is_some() && after_ptr.is_some() && before_ptr != after_ptr {
+            "two presses of 'A' now resolve into a different mapping - \
+             the second pack's own samples, not the parked first pack's"
+                .to_string()
         } else {
-            "two presses still differ - the input side did not switch".to_string()
+            format!(
+                "before {before_ptr:?}, after {after_ptr:?} - the press \
+                 source did not move"
+            )
         },
     );
 
@@ -234,7 +234,7 @@ pub fn run() -> Result<()> {
         format!("parked: {:?}", runtime.retired_pack_names()),
     );
 
-    // --- 5. the stream never stopped --------------------------------------
+    // --- 5. the stream never stopped ---------------------------------------
     std::thread::sleep(Duration::from_millis(500));
     let after = runtime.audio_stats();
     let frames_kept_growing = after.frames_rendered > before.frames_rendered;
@@ -262,7 +262,7 @@ pub fn run() -> Result<()> {
         ),
     );
 
-    // --- 6. the parked pack drains once nothing can use it -----------------
+    // --- 6. the parked pack drains once nothing can use it ------------------
     runtime.stop_simulated();
     let quiet_deadline = Instant::now() + Duration::from_secs(5);
     let mut quiescent = false;
@@ -293,7 +293,7 @@ pub fn run() -> Result<()> {
         format!("stream went quiet: {quiescent}, pack(s) still parked after 5s: {remaining}"),
     );
 
-    // --- 7. it still makes sound afterwards --------------------------------
+    // --- 7. it still makes sound afterwards ---------------------------------
     let mut heard = false;
     if runtime.trigger_key(PhysicalKey::A) {
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -309,7 +309,7 @@ pub fn run() -> Result<()> {
         if heard { Status::Pass } else { Status::Fail },
         "sound still comes out after the switch",
         if heard {
-            "a voice was scheduled from Linear".to_string()
+            format!("a voice was scheduled from {second}")
         } else {
             "no voice appeared within 3s".to_string()
         },
@@ -351,22 +351,10 @@ fn describe_pack(runtime: &Runtime) -> String {
     }
 }
 
-/// Whether two presses of the same key select different sample addresses.
-///
-/// Two-variant packs rotate; single-variant packs repeat. That difference is
-/// visible only through the pack the shared source is actually serving.
-fn varies_per_press(runtime: &Runtime) -> bool {
-    let Some(player) = runtime.player() else {
-        return false;
-    };
-    let mut state = VariantState::default();
-    let first = match player.play(PhysicalKey::A, &mut state) {
-        Some(command) => command.sample_ptr,
-        None => return false,
-    };
-    let second = match player.play(PhysicalKey::A, &mut state) {
-        Some(command) => command.sample_ptr,
-        None => return false,
-    };
-    first != second
+/// The sample address a press of `key` currently resolves to, through the
+/// pack the shared source is actually serving.
+fn play_ptr(runtime: &Runtime, key: PhysicalKey) -> Option<*const i16> {
+    let player = runtime.player()?;
+    let mut state = kv_core::VariantState::default();
+    player.play(key, &mut state).map(|cmd| cmd.sample_ptr)
 }

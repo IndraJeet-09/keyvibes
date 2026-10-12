@@ -160,6 +160,16 @@ pub enum Command {
     /// never a pass.
     AcceptanceTest,
 
+    /// Verify the imported upstream soundpacks, end to end
+    ///
+    /// Ten checks over the packs converted from the pinned rustyvibes-v2
+    /// checkout: the catalog, installation, provenance and license, honest
+    /// coverage, no cross-key substitution, non-silent clips, release-sound
+    /// semantics, a byte-identical rebuild, the untouched synthesized packs,
+    /// and a simulated press/release run through the live engine. Steps that
+    /// need a resource this host does not have are `NOT RUN`, never a pass.
+    SoundpackAcceptanceTest,
+
     /// Verify that input survives keyboards being removed and reconnected
     ///
     /// Always runs a deterministic walk of the exact device state machine the

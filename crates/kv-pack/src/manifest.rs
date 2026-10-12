@@ -31,6 +31,12 @@ pub struct PackSection {
     /// Source/project identifier (logical, never an absolute filesystem path).
     #[serde(default)]
     pub source: String,
+    /// Switch category (`linear`, `tactile`, `clicky`, or any short label).
+    ///
+    /// Stored as an optional sixth metadata string; version 1 packs leave it
+    /// empty and stay byte-identical to before the field existed.
+    #[serde(default)]
+    pub category: String,
     /// Required sample rate for every source clip. When omitted the rate is
     /// taken from the first clip and every other clip must match it.
     #[serde(default)]
@@ -108,6 +114,12 @@ pub struct KeySection {
     pub physical_key: String,
     /// Sample paths relative to the pack root, in variant order.
     pub samples: Vec<String>,
+    /// Release-clip sample paths relative to the pack root, in variant order.
+    ///
+    /// Empty (the default) means the key has no release sound. Packs that set
+    /// this for at least one key are written as format version 2.
+    #[serde(default)]
+    pub release_samples: Vec<String>,
 }
 
 /// Parsed, structurally validated manifest.
@@ -127,6 +139,8 @@ pub struct ManifestKey {
     pub physical_key: PhysicalKey,
     /// Sample paths exactly as written in the manifest (relative to pack root).
     pub samples: Vec<String>,
+    /// Release-clip sample paths exactly as written in the manifest.
+    pub release_samples: Vec<String>,
 }
 
 impl PackManifest {
@@ -204,6 +218,15 @@ impl PackManifest {
                     )));
                 }
             }
+
+            for sample in &entry.release_samples {
+                if sample.trim().is_empty() {
+                    return Err(PackError::ManifestError(format!(
+                        "empty release sample path for key {}",
+                        key
+                    )));
+                }
+            }
         }
 
         Ok(())
@@ -217,9 +240,15 @@ impl PackManifest {
                 Ok(ManifestKey {
                     physical_key: parse_physical_key(&entry.physical_key)?,
                     samples: entry.samples.clone(),
+                    release_samples: entry.release_samples.clone(),
                 })
             })
             .collect()
+    }
+
+    /// Whether any key carries release clips (makes the pack a version 2 build).
+    pub fn has_release_samples(&self) -> bool {
+        self.keys.iter().any(|k| !k.release_samples.is_empty())
     }
 
     /// Builds the effective [`ProcessingConfig`](crate::processing::ProcessingConfig) for this manifest.

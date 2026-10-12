@@ -2,10 +2,13 @@
 //!
 //! Installing more than one sound pack has to be enough to use them: the user
 //! picks one by the name printed by `keyvibes pack list`, not by a path they
-//! have to look up. The test proves discovery, name/path selection, the
+//! have to look up. The test proves discovery, name/path/stem selection, the
 //! precedence rules between `--pack` and the config file, that the global
 //! flag really is accepted on either side of the subcommand, and - when a
 //! PipeWire session is reachable - that each installed pack actually plays.
+//!
+//! It adapts to whatever is installed: any set of packs works, and the
+//! selection checks need at least two.
 //!
 //! Steps that need PipeWire are reported as `NOT RUN` when there is none -
 //! never as a pass.
@@ -22,9 +25,6 @@ use std::time::Duration;
 
 use crate::cli::Cli;
 
-/// The packs the workspace ships in `assets/soundpacks/`.
-const SHIPPED: [&str; 3] = ["Default", "Holy Panda", "Linear"];
-
 /// Runs the acceptance test.
 pub fn run() -> Result<()> {
     let mut report = Report::new("pack-test");
@@ -32,92 +32,180 @@ pub fn run() -> Result<()> {
     // --- 1. discovery ------------------------------------------------------
     let found = pack_locate::discover();
     let names = pack_locate::available_names();
-    let all_present = SHIPPED
-        .iter()
-        .all(|wanted| names.iter().any(|name| name == wanted));
+    let unique = {
+        let mut seen = std::collections::HashSet::new();
+        names.iter().all(|name| seen.insert(name.to_lowercase()))
+    };
     report.add(
-        if found.len() >= SHIPPED.len() && all_present {
+        if !found.is_empty() && !names.is_empty() && unique {
             Status::Pass
         } else {
             Status::Fail
         },
         "`pack list` finds every installed pack",
-        if all_present {
+        if !found.is_empty() && !names.is_empty() && unique {
             format!("{} pack(s): {}", names.len(), names.join(", "))
+        } else if names.is_empty() {
+            "no packs are installed - build some with `keyvibes pack build` \
+             (see docs/soundpacks.md for the upstream loop and \
+             assets/soundpacks/default-src for the synthesized demos)"
+                .to_string()
         } else {
             format!(
-                "expected {}, found {} - build them first: {}",
-                SHIPPED.join(", "),
-                if names.is_empty() {
-                    "none".to_string()
-                } else {
-                    names.join(", ")
-                },
-                build_commands().join(" ; ")
+                "installed names are not unique (a later pack would shadow \
+                 an earlier one): {}",
+                names.join(", ")
             )
         },
     );
 
-    if found.is_empty() {
+    if names.is_empty() {
         return report.finish();
     }
 
-    // --- 2. selection by name, by case, by file stem, by path --------------
-    let holy = match pack_locate::resolve_selector("Holy Panda") {
+    let first = &names[0];
+    let first_path = match pack_locate::resolve_selector(first) {
         Ok(path) => path,
         Err(error) => {
             report.fail("selection by pack name", error.to_string());
             return report.finish();
         }
     };
-    report.pass("selection by pack name", format!("{}", holy.display()));
+    report.pass(
+        "selection by pack name",
+        format!("{}", first_path.display()),
+    );
 
-    let lower = pack_locate::resolve_selector("holy panda");
+    let lower = pack_locate::resolve_selector(&first.to_lowercase());
     report.add(
-        if lower.as_deref().ok() == Some(holy.as_path()) {
+        if lower.as_deref().ok() == Some(first_path.as_path()) {
             Status::Pass
         } else {
             Status::Fail
         },
         "pack names match case-insensitively",
         match lower {
-            Ok(path) => format!("`holy panda` -> {}", path.display()),
+            Ok(path) => format!("`{}` -> {}", first.to_lowercase(), path.display()),
             Err(error) => format!("unexpected error: {error}"),
         },
     );
 
-    let linear = match pack_locate::resolve_selector("Linear") {
-        Ok(path) => path,
-        Err(error) => {
-            report.fail("selection by file stem", error.to_string());
-            return report.finish();
-        }
+    // --- 2. two packs prove the rest of the selection contract --------------
+    let second = names.get(1).cloned();
+    let second_path = match &second {
+        Some(name) => match pack_locate::resolve_selector(name) {
+            Ok(path) => Some(path),
+            Err(error) => {
+                report.fail("selection by pack name", error.to_string());
+                return report.finish();
+            }
+        },
+        None => None,
     };
-    report.add(
-        if linear != holy {
-            Status::Pass
-        } else {
-            Status::Fail
-        },
-        "each name selects a different pack",
-        format!(
-            "{} vs {}",
-            holy.file_name().unwrap_or_default().to_string_lossy(),
-            linear.file_name().unwrap_or_default().to_string_lossy()
-        ),
-    );
+    match (&second, &second_path) {
+        (Some(name), Some(path)) => {
+            report.add(
+                if path != &first_path {
+                    Status::Pass
+                } else {
+                    Status::Fail
+                },
+                "each name selects a different pack",
+                format!(
+                    "{} vs {}",
+                    first_path.file_name().unwrap_or_default().to_string_lossy(),
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                ),
+            );
 
-    let by_path = pack_locate::resolve_selector(&holy.to_string_lossy());
+            // The file stem is what a user types when the name has spaces.
+            let stem = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let by_stem = pack_locate::resolve_selector(&stem);
+            report.add(
+                if by_stem.as_deref().ok() == Some(path.as_path()) {
+                    Status::Pass
+                } else {
+                    Status::Fail
+                },
+                "a file stem selects its pack",
+                match by_stem {
+                    Ok(resolved) => format!("{stem} -> {}", resolved.display()),
+                    Err(error) => format!("unexpected error: {error}"),
+                },
+            );
+
+            let by_path = pack_locate::resolve_selector(&first_path.to_string_lossy());
+            report.add(
+                if by_path.as_deref().ok() == Some(first_path.as_path()) {
+                    Status::Pass
+                } else {
+                    Status::Fail
+                },
+                "a path works as a selector too",
+                match by_path {
+                    Ok(path) => format!("{} -> {}", first_path.display(), path.display()),
+                    Err(error) => format!("unexpected error: {error}"),
+                },
+            );
+
+            // --- 3. precedence: --pack beats config, config beats default ---
+            let config = Config {
+                pack: Some(first.clone()),
+                ..Config::default()
+            };
+
+            let precedence = select_pack(Some(name), &config);
+            report.add(
+                if precedence.as_deref().ok() == Some(path.as_path()) {
+                    Status::Pass
+                } else {
+                    Status::Fail
+                },
+                "`--pack` overrides the configured pack",
+                match precedence {
+                    Ok(resolved) => format!("--pack {name} -> {}", resolved.display()),
+                    Err(error) => format!("unexpected error: {error}"),
+                },
+            );
+
+            let from_config = select_pack(None, &config);
+            report.add(
+                if from_config.as_deref().ok() == Some(first_path.as_path()) {
+                    Status::Pass
+                } else {
+                    Status::Fail
+                },
+                "the configured pack is used when `--pack` is absent",
+                match from_config {
+                    Ok(resolved) => format!("config pack {first} -> {}", resolved.display()),
+                    Err(error) => format!("unexpected error: {error}"),
+                },
+            );
+        }
+        _ => {
+            report.not_run(
+                "each name selects a different pack",
+                "only one pack is installed, so name/stem/path distinction \
+                 and `--pack`-vs-config precedence have nothing to prove \
+                 against",
+            );
+        }
+    }
+
+    let default = select_pack(None, &Config::default());
     report.add(
-        if by_path.as_deref().ok() == Some(holy.as_path()) {
+        if default.is_ok() {
             Status::Pass
         } else {
             Status::Fail
         },
-        "a path works as a selector too",
-        match by_path {
-            Ok(path) => format!("{} -> {}", holy.display(), path.display()),
-            Err(error) => format!("unexpected error: {error}"),
+        "a fresh install falls back to a default pack",
+        match default {
+            Ok(path) => format!("default -> {}", path.display()),
+            Err(error) => error.to_string(),
         },
     );
 
@@ -152,55 +240,8 @@ pub fn run() -> Result<()> {
         },
     );
 
-    // --- 3. precedence: --pack beats config, config beats default -----------
-    let config = Config {
-        pack: Some("Holy Panda".to_string()),
-        ..Config::default()
-    };
-
-    let precedence = select_pack(Some("Linear"), &config);
-    report.add(
-        if precedence.as_deref().ok() == Some(linear.as_path()) {
-            Status::Pass
-        } else {
-            Status::Fail
-        },
-        "`--pack` overrides the configured pack",
-        match precedence {
-            Ok(path) => format!("--pack Linear -> {}", path.display()),
-            Err(error) => format!("unexpected error: {error}"),
-        },
-    );
-
-    let from_config = select_pack(None, &config);
-    report.add(
-        if from_config.as_deref().ok() == Some(holy.as_path()) {
-            Status::Pass
-        } else {
-            Status::Fail
-        },
-        "the configured pack is used when `--pack` is absent",
-        match from_config {
-            Ok(path) => format!("config pack Holy Panda -> {}", path.display()),
-            Err(error) => format!("unexpected error: {error}"),
-        },
-    );
-
-    let default = select_pack(None, &Config::default());
-    report.add(
-        if default.is_ok() {
-            Status::Pass
-        } else {
-            Status::Fail
-        },
-        "a fresh install falls back to a default pack",
-        match default {
-            Ok(path) => format!("default -> {}", path.display()),
-            Err(error) => error.to_string(),
-        },
-    );
-
     // --- 4. the global flag parses on either side of the subcommand ---------
+    // Pure parsing: the name need not be installed for clap to accept it.
     for before in [
         vec!["keyvibes", "--pack", "Linear", "run", "--simulate"],
         vec!["keyvibes", "run", "--pack", "Linear", "--simulate"],
@@ -239,7 +280,7 @@ pub fn run() -> Result<()> {
 
     let mut details = Vec::new();
     let mut failed = Vec::new();
-    for name in SHIPPED {
+    for name in &names {
         match pack_locate::resolve_selector(name) {
             Ok(path) => match renders(&path) {
                 Ok(detail) => details.push(format!("{name}: {detail}")),
@@ -255,29 +296,6 @@ pub fn run() -> Result<()> {
     }
 
     report.finish()
-}
-
-/// The commands that produce every pack this test expects to find.
-///
-/// Pack archives are generated, so a fresh clone has the sources under
-/// `assets/soundpacks/default-src/` and nothing else; these are the exact
-/// commands that turn them into installed packs.
-fn build_commands() -> Vec<String> {
-    // The output path is quoted whole, so a pack whose name contains a space
-    // is copy-pasteable as printed.
-    [
-        ("pack.toml", "assets/soundpacks/Default.kvpack"),
-        ("holy-panda.toml", "\"assets/soundpacks/Holy Panda.kvpack\""),
-        ("linear.toml", "assets/soundpacks/Linear.kvpack"),
-    ]
-    .iter()
-    .map(|(manifest, output)| {
-        format!(
-            "cargo run --quiet --bin keyvibes -- pack build \
-             assets/soundpacks/default-src/{manifest} -o {output}"
-        )
-    })
-    .collect()
 }
 
 /// Loads a pack, starts the stream, drives it with scripted keys, and returns
@@ -329,6 +347,30 @@ fn renders(path: &Path) -> Result<String, String> {
         "{} frame(s), {} command(s), peak {:.3}",
         stats.frames_rendered, stats.drained_commands, stats.peak
     ))
+}
+
+/// The commands that produce the synthesized demo packs from the committed
+/// sources.
+///
+/// The upstream packs are built the same way from
+/// `assets/soundpacks/upstream-src/<id>/pack.toml`; see docs/soundpacks.md.
+#[cfg(test)]
+fn build_commands() -> Vec<String> {
+    // The output path is quoted whole, so a pack whose name contains a space
+    // is copy-pasteable as printed.
+    [
+        ("pack.toml", "assets/soundpacks/Default.kvpack"),
+        ("holy-panda.toml", "\"assets/soundpacks/Holy Panda.kvpack\""),
+        ("linear.toml", "assets/soundpacks/Linear.kvpack"),
+    ]
+    .iter()
+    .map(|(manifest, output)| {
+        format!(
+            "cargo run --quiet --bin keyvibes -- pack build \
+             assets/soundpacks/default-src/{manifest} -o {output}"
+        )
+    })
+    .collect()
 }
 
 #[cfg(test)]

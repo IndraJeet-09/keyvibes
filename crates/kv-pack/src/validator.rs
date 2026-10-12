@@ -2,14 +2,19 @@
 
 use crate::error::{PackError, PackResult};
 use crate::header::Header;
-use crate::parser::{ClipEntry, KeyEntry};
+use crate::parser::{ClipEntry, KeyEntry, ReleaseEntry};
 
 /// Validates all structural relationships in a parsed pack.
 pub fn validate_full(
     header: &Header,
     key_entries: &[KeyEntry],
+    release_entries: &[ReleaseEntry],
     clip_entries: &[ClipEntry],
 ) -> PackResult<()> {
+    // Which clip slots a press key already claims, so release ranges can be
+    // checked for accidental overlap with them.
+    let mut claimed = vec![false; clip_entries.len()];
+
     // Validate key → clip relationships
     for key in key_entries.iter() {
         // First clip index within bounds
@@ -34,6 +39,49 @@ pub fn validate_full(
                 clip_count: header.clip_count,
             });
         }
+
+        mark_range(&mut claimed, key.first_clip, key.variant_count)?;
+    }
+
+    // Validate release → clip relationships (version 2 only)
+    for release in release_entries.iter() {
+        // Every release entry must belong to a key the pack actually carries.
+        let key_id = release.physical_key.as_u16();
+        if !key_entries
+            .iter()
+            .any(|k| k.physical_key == release.physical_key)
+        {
+            return Err(PackError::ValidationFailed(format!(
+                "release table entry for key {key_id} has no matching key entry"
+            )));
+        }
+
+        if release.first_release_clip >= header.clip_count {
+            return Err(PackError::InvalidClipIndex {
+                key: key_id,
+                first_clip: release.first_release_clip,
+                clip_count: header.clip_count,
+            });
+        }
+
+        let end_clip = (release.first_release_clip as u64)
+            .checked_add(release.release_variant_count as u64)
+            .ok_or(PackError::IntegerOverflow)?;
+
+        if end_clip > header.clip_count as u64 {
+            return Err(PackError::ClipRangeOverflow {
+                key: key_id,
+                first_clip: release.first_release_clip,
+                variant_count: release.release_variant_count,
+                clip_count: header.clip_count,
+            });
+        }
+
+        mark_range(
+            &mut claimed,
+            release.first_release_clip,
+            release.release_variant_count,
+        )?;
     }
 
     // Validate clip sample regions
@@ -80,6 +128,27 @@ pub fn validate_full(
     Ok(())
 }
 
+/// Marks `[first, first + count)` as claimed, rejecting overlaps.
+fn mark_range(claimed: &mut [bool], first: u32, count: u16) -> PackResult<()> {
+    let start = first as usize;
+    let end = (first as usize)
+        .checked_add(count as usize)
+        .ok_or(PackError::IntegerOverflow)?;
+
+    for slot in claimed
+        .get_mut(start..end)
+        .ok_or(PackError::IntegerOverflow)?
+    {
+        if *slot {
+            return Err(PackError::ValidationFailed(
+                "two key or release entries claim the same clip".to_string(),
+            ));
+        }
+        *slot = true;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,6 +173,8 @@ mod tests {
             sample_rate: 48000,
             channels: 1,
             sample_format: 0,
+            release_table_offset: 0,
+            release_table_size: 0,
         }
     }
 
@@ -123,7 +194,7 @@ mod tests {
             stored_frames: 105,
         }];
 
-        assert!(validate_full(&header, &keys, &clips).is_ok());
+        assert!(validate_full(&header, &keys, &[], &clips).is_ok());
     }
 
     #[test]
@@ -142,6 +213,72 @@ mod tests {
             stored_frames: 10005,
         }];
 
-        assert!(validate_full(&header, &keys, &clips).is_err());
+        assert!(validate_full(&header, &keys, &[], &clips).is_err());
+    }
+
+    #[test]
+    fn test_release_entry_requires_matching_key() {
+        let header = make_header(1, 2, 200);
+        let keys = vec![KeyEntry {
+            physical_key: PhysicalKey::A,
+            variant_count: 1,
+            first_clip: 0,
+        }];
+        let releases = vec![ReleaseEntry {
+            physical_key: PhysicalKey::Space,
+            release_variant_count: 1,
+            first_release_clip: 1,
+        }];
+        let clips = vec![
+            ClipEntry {
+                sample_offset: 0,
+                sample_frames: 50,
+                guard_before: 2,
+                guard_after: 3,
+                stored_frames: 55,
+            },
+            ClipEntry {
+                sample_offset: 110,
+                sample_frames: 50,
+                guard_before: 2,
+                guard_after: 3,
+                stored_frames: 55,
+            },
+        ];
+
+        assert!(validate_full(&header, &keys, &releases, &clips).is_err());
+    }
+
+    #[test]
+    fn test_release_range_must_not_overlap_press_range() {
+        let header = make_header(1, 2, 200);
+        let keys = vec![KeyEntry {
+            physical_key: PhysicalKey::A,
+            variant_count: 2,
+            first_clip: 0,
+        }];
+        let releases = vec![ReleaseEntry {
+            physical_key: PhysicalKey::A,
+            release_variant_count: 1,
+            first_release_clip: 1,
+        }];
+        let clips = vec![
+            ClipEntry {
+                sample_offset: 0,
+                sample_frames: 50,
+                guard_before: 2,
+                guard_after: 3,
+                stored_frames: 55,
+            },
+            ClipEntry {
+                sample_offset: 110,
+                sample_frames: 50,
+                guard_before: 2,
+                guard_after: 3,
+                stored_frames: 55,
+            },
+        ];
+
+        assert!(validate_full(&header, &keys, &releases, &clips).is_err());
     }
 }

@@ -3,7 +3,7 @@
 use crate::error::{PackError, PackResult};
 use crate::format::*;
 use crate::header::Header;
-use crate::parser::{self, KeyEntry};
+use crate::parser::{self, KeyEntry, ReleaseEntry};
 use crate::playback::PlayCommand;
 use crate::validator;
 use memmap2::Mmap;
@@ -45,6 +45,8 @@ pub struct KvPack {
     header: Header,
     /// Parsed key entries
     keys: Vec<KeyEntry>,
+    /// Parsed release entries (format version 2; empty for version 1)
+    releases: Vec<ReleaseEntry>,
     /// Parsed clip entries
     clips: Vec<parser::ClipEntry>,
     /// Parsed metadata (eagerly decoded at open time)
@@ -106,6 +108,20 @@ impl KvPack {
         )?;
         let keys = parser::parse_key_table(key_data, header.key_count)?;
 
+        // Extract release table (format version 2 only)
+        let release_count = header.release_table_size as usize / RELEASE_ENTRY_SIZE;
+        let releases = if release_count == 0 {
+            Vec::new()
+        } else {
+            let release_data = region(
+                &mmap,
+                "release_table",
+                header.release_table_offset,
+                header.release_table_size as u64,
+            )?;
+            parser::parse_release_table(release_data, release_count as u32)?
+        };
+
         // Extract clip table
         let clip_data = region(
             &mmap,
@@ -116,7 +132,7 @@ impl KvPack {
         let clips = parser::parse_clip_table(clip_data, header.clip_count)?;
 
         // Full validation of relationships
-        validator::validate_full(&header, &keys, &clips)?;
+        validator::validate_full(&header, &keys, &releases, &clips)?;
 
         // Decode metadata eagerly: a corrupt metadata section must fail at
         // open time, not on the first `metadata()` call, and the hot path
@@ -154,6 +170,7 @@ impl KvPack {
             mmap,
             header,
             keys,
+            releases,
             clips,
             metadata,
             samples,
@@ -221,12 +238,38 @@ impl KvPack {
         PackStats {
             name: self.metadata.name.clone(),
             keys: self.header.key_count,
+            release_keys: self.releases.len() as u32,
             clips: self.header.clip_count,
             sample_rate: self.header.sample_rate,
             channels: self.header.channels,
             sample_frames: self.clips.iter().map(|c| c.sample_frames as u64).sum(),
             mapped_size: self.mmap.len(),
         }
+    }
+
+    /// Physical keys this pack carries no sound for, in `PhysicalKey` order.
+    ///
+    /// A key missing here is silent at runtime - [`play_command`](Self::play_command)
+    /// returns `None` for it and the input pipeline counts the press rather
+    /// than substituting another key's sound. Diagnostics report this list so
+    /// "which keys does this pack actually cover" is answerable from the pack
+    /// alone, without pressing anything.
+    pub fn missing_keys(&self) -> Vec<kv_core::PhysicalKey> {
+        (0..kv_core::PhysicalKey::COUNT as u16)
+            .filter_map(kv_core::PhysicalKey::from_u16)
+            .filter(|key| self.lookup(*key).is_none())
+            .collect()
+    }
+
+    /// Number of physical keys this pack covers (out of
+    /// [`PhysicalKey::COUNT`](kv_core::PhysicalKey::COUNT)).
+    pub fn key_coverage(&self) -> u32 {
+        (kv_core::PhysicalKey::COUNT as u32) - self.missing_keys().len() as u32
+    }
+
+    /// Whether the pack carries a sound for every physical key.
+    pub fn covers_all_keys(&self) -> bool {
+        self.missing_keys().is_empty()
     }
 }
 
@@ -235,6 +278,8 @@ impl KvPack {
 pub struct PackStats {
     pub name: String,
     pub keys: u32,
+    /// Number of keys that carry at least one release clip.
+    pub release_keys: u32,
     pub clips: u32,
     pub sample_rate: u32,
     pub channels: u16,
@@ -259,20 +304,80 @@ impl KvPack {
         &self.clips
     }
 
-    /// Creates a PlayCommand for a key press with variant selection.
+    /// Parsed release table entries, sorted by physical key.
+    pub fn release_entries(&self) -> &[ReleaseEntry] {
+        &self.releases
+    }
+
+    /// Looks up release sounds by binary search (release table sorted by key).
+    pub fn release_lookup(&self, key: kv_core::PhysicalKey) -> Option<(u32, u16)> {
+        let id = key.as_u16() as u32;
+        let mut low = 0usize;
+        let mut high = self.releases.len();
+        while low < high {
+            let mid = (low + high) / 2;
+            let mid_id = self.releases[mid].physical_key.as_u16() as u32;
+            if mid_id == id {
+                let entry = &self.releases[mid];
+                return Some((entry.first_release_clip, entry.release_variant_count));
+            } else if mid_id < id {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        None
+    }
+
+    /// Whether the pack carries any release clip at all.
+    pub fn has_release_sounds(&self) -> bool {
+        !self.releases.is_empty()
+    }
+
+    /// Number of keys that carry at least one release clip.
+    pub fn release_key_count(&self) -> u32 {
+        self.releases.len() as u32
+    }
+
+    /// Creates a PlayCommand for a key **release**, when the pack has one.
     ///
-    /// Returns `None` when the pack has no sound for `key`, when the clip is
-    /// degenerate, or when `output_rate` is zero.
+    /// Returns `None` when the pack is version 1, when it has no release clip
+    /// for `key`, or when the clip is degenerate. The returned command has
+    /// [`PlayCommand::release`] set so the mixer can treat it differently
+    /// from a press.
     ///
     /// # RT safety
     ///
-    /// Binary search plus slice indexing only: no allocation, no locks, no I/O.
-    /// The returned command points into this pack's memory mapping, so the
-    /// pack must outlive every voice built from it.
-    pub fn play_command(
+    /// Same contract as [`play_command`](Self::play_command): binary search
+    /// and slice indexing only.
+    pub fn release_command(
         &self,
         key: kv_core::PhysicalKey,
         variant_state: &mut crate::lookup::VariantState,
+        output_rate: u32,
+        left_gain: f32,
+        right_gain: f32,
+    ) -> Option<PlayCommand> {
+        let (first_clip, variant_count) = self.release_lookup(key)?;
+        let selected = if variant_count == 1 {
+            0
+        } else {
+            variant_state.select(variant_count)
+        };
+        let mut command = self.command_in_range(
+            first_clip + selected as u32,
+            output_rate,
+            left_gain,
+            right_gain,
+        )?;
+        command.release = true;
+        Some(command)
+    }
+
+    /// Builds a play command for one clip index, shared by press and release.
+    fn command_in_range(
+        &self,
+        clip_idx: u32,
         output_rate: u32,
         left_gain: f32,
         right_gain: f32,
@@ -281,9 +386,6 @@ impl KvPack {
             return None;
         }
 
-        let sounds = self.lookup(key)?;
-        let selected_variant = variant_state.select(sounds.variant_count);
-        let clip_idx = sounds.first_clip + selected_variant as u32;
         let clip_slice = self.get_clip(clip_idx)?;
 
         // clip_slice includes guard samples; logical frames start after
@@ -315,5 +417,33 @@ impl KvPack {
             release: false,
             enqueued_ns: 0,
         })
+    }
+
+    /// Creates a PlayCommand for a key press with variant selection.
+    ///
+    /// Returns `None` when the pack has no sound for `key`, when the clip is
+    /// degenerate, or when `output_rate` is zero.
+    ///
+    /// # RT safety
+    ///
+    /// Binary search plus slice indexing only: no allocation, no locks, no I/O.
+    /// The returned command points into this pack's memory mapping, so the
+    /// pack must outlive every voice built from it.
+    pub fn play_command(
+        &self,
+        key: kv_core::PhysicalKey,
+        variant_state: &mut crate::lookup::VariantState,
+        output_rate: u32,
+        left_gain: f32,
+        right_gain: f32,
+    ) -> Option<PlayCommand> {
+        if output_rate == 0 {
+            return None;
+        }
+
+        let sounds = self.lookup(key)?;
+        let selected_variant = variant_state.select(sounds.variant_count);
+        let clip_idx = sounds.first_clip + selected_variant as u32;
+        self.command_in_range(clip_idx, output_rate, left_gain, right_gain)
     }
 }

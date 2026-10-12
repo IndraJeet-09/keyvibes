@@ -149,11 +149,30 @@ impl SimulatedInput {
                                     &mut variant_states,
                                     wake.as_deref(),
                                 );
+                                // A Press step is a full tap: the simulated
+                                // device also emits the key-up, which is
+                                // where a pack's release sound comes from.
+                                Self::emit_release(
+                                    &queue,
+                                    &stats,
+                                    source.as_ref(),
+                                    key,
+                                    &mut variant_states,
+                                    wake.as_deref(),
+                                );
                                 stats.increment_release();
                             }
                             SimStep::Chord(keys) => {
                                 for key in keys {
                                     Self::emit(
+                                        &queue,
+                                        &stats,
+                                        source.as_ref(),
+                                        key,
+                                        &mut variant_states,
+                                        wake.as_deref(),
+                                    );
+                                    Self::emit_release(
                                         &queue,
                                         &stats,
                                         source.as_ref(),
@@ -216,6 +235,40 @@ impl SimulatedInput {
             } else {
                 stats.increment_command_generated();
                 stats.record_command_latency(kv_core::monotonic_ns() - started_ns);
+            }
+        } else {
+            // Same contract as the live pipeline: a press the pack has no
+            // clip for is counted and stays silent - never substituted.
+            stats.increment_missing_sound();
+        }
+    }
+
+    /// Turns one key release into a queued release command, when the source
+    /// offers one.
+    ///
+    /// Mirrors the live pipeline's `KEY_UP` path: a source without release
+    /// sounds (or with the feature off) returns `None` and the release is
+    /// silent. Nothing is ever substituted, and a silent release is not a
+    /// missing sound.
+    fn emit_release<S: SoundSource + ?Sized>(
+        queue: &Arc<SpscRing<PlayCommand>>,
+        stats: &Arc<InputStats>,
+        source: &S,
+        key: PhysicalKey,
+        variant_states: &mut [VariantState; PhysicalKey::COUNT],
+        wake: Option<&dyn StreamWake>,
+    ) {
+        let state = &mut variant_states[key.as_u16() as usize];
+        if let Some(cmd) = source.play_release(key, state) {
+            if let Some(wake) = wake {
+                wake.wake();
+            }
+            let outcome = queue.push(cmd.stamped(kv_core::monotonic_ns()));
+            source.queued(cmd);
+            if outcome.is_err() {
+                stats.increment_command_dropped();
+            } else {
+                stats.increment_command_generated();
             }
         }
     }

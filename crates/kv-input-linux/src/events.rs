@@ -145,6 +145,53 @@ mod tests {
     }
 
     #[test]
+    fn an_unmapped_press_is_unknown_never_a_press_of_some_other_key() {
+        // F13 exists on real keyboards and is deliberately not modelled by
+        // `PhysicalKey`. The event must be dropped as Unknown: turning it
+        // into `Press(A)` (or any other key) would play the wrong sound and
+        // hide a coverage gap.
+        for code in [
+            Key::KEY_F13.code(),
+            Key::KEY_F24.code(),
+            Key::KEY_MUTE.code(),
+        ] {
+            let press = make_event(EventType::KEY, code, 1);
+            assert_eq!(process_event(&press), EventResult::Unknown);
+            assert_ne!(process_event(&press), EventResult::Press(PhysicalKey::A));
+            // A release of the same keycode is Unknown too, never Release(A).
+            let release = make_event(EventType::KEY, code, 0);
+            assert_eq!(process_event(&release), EventResult::Unknown);
+        }
+    }
+
+    #[test]
+    fn repeats_are_not_presses_and_releases_are_not_presses() {
+        let press = make_event(EventType::KEY, Key::KEY_Q.code(), 1);
+        let repeat = make_event(EventType::KEY, Key::KEY_Q.code(), 2);
+        let release = make_event(EventType::KEY, Key::KEY_Q.code(), 0);
+
+        assert_eq!(process_event(&press), EventResult::Press(PhysicalKey::Q));
+        assert_eq!(process_event(&repeat), EventResult::Repeat);
+        assert_eq!(
+            process_event(&release),
+            EventResult::Release(PhysicalKey::Q)
+        );
+        // Exactly one of the three is a press: holding a key must not
+        // retrigger, and letting go must not trigger at all.
+        assert!(
+            [
+                matches!(process_event(&press), EventResult::Press(_)),
+                matches!(process_event(&repeat), EventResult::Press(_)),
+                matches!(process_event(&release), EventResult::Press(_)),
+            ]
+            .iter()
+            .filter(|&&is_press| is_press)
+            .count()
+                == 1
+        );
+    }
+
+    #[test]
     fn test_ignore_repeats() {
         // Holding a key should only generate one press event
         let events = [

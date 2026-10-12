@@ -212,6 +212,7 @@ impl Runtime {
         let pack = Arc::new(KvPack::open(path.as_ref())?);
         let mut player = PackPlayer::new(pack.clone(), self.output_rate);
         player.spatial(self.settings.spatial_audio_enabled);
+        player.release_sounds(self.settings.release_sounds_enabled);
         let player = Arc::new(player);
 
         let report = match self.source.clone() {

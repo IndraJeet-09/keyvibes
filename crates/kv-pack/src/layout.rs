@@ -14,6 +14,10 @@ pub struct PackLayout {
     pub metadata_size: u32,
     pub key_table_offset: u64,
     pub key_table_size: u32,
+    /// Offset of the release table (format version 2 only; zero for version 1).
+    pub release_table_offset: u64,
+    /// Size of the release table in bytes (0 for version 1 packs).
+    pub release_table_size: u32,
     pub clip_table_offset: u64,
     pub clip_table_size: u32,
     pub sample_data_offset: u64,
@@ -68,11 +72,15 @@ pub fn compute_sample_offsets(stored_frames: &[u32]) -> PackResult<(Vec<u64>, u6
 /// Layout (per format specification):
 ///
 /// ```text
-/// Header (120) → Metadata → Key table → Clip table → Padding → Sample data
+/// Header (120) → Metadata → Key table → Release table → Clip table → Padding → Sample data
 /// ```
+///
+/// `release_count` is the number of release-table entries; zero produces a
+/// version 1 layout with no release table at all.
 pub fn compute_layout(
     metadata_size: u32,
     key_count: u32,
+    release_count: u32,
     clip_count: u32,
     sample_bytes: u64,
 ) -> PackResult<PackLayout> {
@@ -81,6 +89,12 @@ pub fn compute_layout(
     }
     if key_count > MAX_KEYS {
         return Err(PackError::TooManyKeys(key_count, MAX_KEYS));
+    }
+    if release_count > MAX_KEYS {
+        return Err(PackError::InvalidLength {
+            field: "release_count",
+            length: release_count as u64,
+        });
     }
     if clip_count > MAX_CLIPS {
         return Err(PackError::TooManyClips(clip_count, MAX_CLIPS));
@@ -101,9 +115,27 @@ pub fn compute_layout(
         .checked_mul(KEY_ENTRY_SIZE as u64)
         .ok_or(PackError::IntegerOverflow)?;
 
-    let clip_table_offset = key_table_offset
-        .checked_add(key_table_size)
-        .ok_or(PackError::IntegerOverflow)?;
+    let (release_table_offset, release_table_size) = if release_count == 0 {
+        (0u64, 0u32)
+    } else {
+        let offset = key_table_offset
+            .checked_add(key_table_size)
+            .ok_or(PackError::IntegerOverflow)?;
+        let size = (release_count as u64)
+            .checked_mul(RELEASE_ENTRY_SIZE as u64)
+            .ok_or(PackError::IntegerOverflow)?;
+        (offset, size as u32)
+    };
+
+    let clip_table_offset = if release_count == 0 {
+        key_table_offset
+            .checked_add(key_table_size)
+            .ok_or(PackError::IntegerOverflow)?
+    } else {
+        release_table_offset
+            .checked_add(release_table_size as u64)
+            .ok_or(PackError::IntegerOverflow)?
+    };
     let clip_table_size = (clip_count as u64)
         .checked_mul(CLIP_ENTRY_SIZE as u64)
         .ok_or(PackError::IntegerOverflow)?;
@@ -131,6 +163,8 @@ pub fn compute_layout(
         metadata_size,
         key_table_offset,
         key_table_size: key_table_size as u32,
+        release_table_offset,
+        release_table_size,
         clip_table_offset,
         clip_table_size: clip_table_size as u32,
         sample_data_offset,
@@ -173,10 +207,12 @@ mod tests {
 
     #[test]
     fn test_layout_minimal() {
-        let layout = compute_layout(32, 1, 1, 210).unwrap();
+        let layout = compute_layout(32, 1, 0, 1, 210).unwrap();
         assert_eq!(layout.metadata_offset, HEADER_SIZE as u64);
         assert_eq!(layout.key_table_offset, HEADER_SIZE as u64 + 32);
         assert_eq!(layout.key_table_size, KEY_ENTRY_SIZE as u32);
+        assert_eq!(layout.release_table_size, 0);
+        assert_eq!(layout.release_table_offset, 0);
         assert_eq!(layout.clip_table_size, CLIP_ENTRY_SIZE as u32);
         assert_eq!(layout.sample_data_offset % SAMPLE_ALIGNMENT, 0);
         assert!(layout.sample_data_offset >= layout.clip_table_offset + CLIP_ENTRY_SIZE as u64);
@@ -184,13 +220,29 @@ mod tests {
     }
 
     #[test]
+    fn test_layout_with_release_table() {
+        let layout = compute_layout(32, 2, 1, 3, 420).unwrap();
+        assert_eq!(
+            layout.release_table_offset,
+            layout.key_table_offset + KEY_ENTRY_SIZE as u64 * 2
+        );
+        assert_eq!(layout.release_table_size, RELEASE_ENTRY_SIZE as u32);
+        assert_eq!(
+            layout.clip_table_offset,
+            layout.release_table_offset + RELEASE_ENTRY_SIZE as u64
+        );
+        assert_eq!(layout.clip_table_size, CLIP_ENTRY_SIZE as u32 * 3);
+    }
+
+    #[test]
     fn test_layout_rejects_zero_keys() {
-        assert!(compute_layout(0, 0, 0, 0).is_err());
+        assert!(compute_layout(0, 0, 0, 0, 0).is_err());
     }
 
     #[test]
     fn test_layout_rejects_huge_counts() {
-        assert!(compute_layout(0, MAX_KEYS + 1, 1, 0).is_err());
-        assert!(compute_layout(0, 1, MAX_CLIPS + 1, 0).is_err());
+        assert!(compute_layout(0, MAX_KEYS + 1, 0, 1, 0).is_err());
+        assert!(compute_layout(0, 1, MAX_KEYS + 1, 1, 0).is_err());
+        assert!(compute_layout(0, 1, 0, MAX_CLIPS + 1, 0).is_err());
     }
 }

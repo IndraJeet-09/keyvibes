@@ -40,34 +40,8 @@ pub fn parse_key_table(data: &[u8], key_count: u32) -> PackResult<Vec<KeyEntry>>
 
     for i in 0..key_count {
         let offset = (i as usize) * KEY_ENTRY_SIZE;
-        let entry_data = &data[offset..offset + KEY_ENTRY_SIZE];
-
-        let physical_key_id = u16::from_le_bytes([entry_data[0], entry_data[1]]);
-        let variant_count = u16::from_le_bytes([entry_data[2], entry_data[3]]);
-        let first_clip =
-            u32::from_le_bytes([entry_data[4], entry_data[5], entry_data[6], entry_data[7]]);
-
-        // Validate physical key ID
-        let physical_key = PhysicalKey::from_u16(physical_key_id).ok_or(
-            PackError::InvalidKeyId(physical_key_id, PhysicalKey::COUNT as u16 - 1),
-        )?;
-
-        // Check sorted order
-        if let Some(prev) = prev_key_id {
-            if physical_key_id <= prev {
-                return Err(PackError::KeysNotSorted(physical_key_id, prev));
-            }
-        }
-        prev_key_id = Some(physical_key_id);
-
-        // Validate variant count
-        if variant_count == 0 || variant_count > MAX_VARIANTS_PER_KEY {
-            return Err(PackError::InvalidVariantCount {
-                key: physical_key_id,
-                count: variant_count,
-                max: MAX_VARIANTS_PER_KEY,
-            });
-        }
+        let (physical_key, variant_count, first_clip) =
+            read_entry(&data[offset..offset + KEY_ENTRY_SIZE], &mut prev_key_id)?;
 
         entries.push(KeyEntry {
             physical_key,
@@ -77,6 +51,83 @@ pub fn parse_key_table(data: &[u8], key_count: u32) -> PackResult<Vec<KeyEntry>>
     }
 
     Ok(entries)
+}
+
+/// Parsed release entry from the release table (format version 2).
+///
+/// Identical 8-byte shape to a key entry, but the range it names holds that
+/// key's release clips. Sorted ascending by physical key, at most one entry
+/// per key.
+#[derive(Debug, Clone, Copy)]
+pub struct ReleaseEntry {
+    pub physical_key: PhysicalKey,
+    pub release_variant_count: u16,
+    pub first_release_clip: u32,
+}
+
+/// Parses the release table from bytes.
+pub fn parse_release_table(data: &[u8], entry_count: u32) -> PackResult<Vec<ReleaseEntry>> {
+    let expected_size = (entry_count as usize)
+        .checked_mul(RELEASE_ENTRY_SIZE)
+        .ok_or(PackError::IntegerOverflow)?;
+
+    if data.len() < expected_size {
+        return Err(PackError::FileTruncated {
+            expected: expected_size as u64,
+            actual: data.len() as u64,
+        });
+    }
+
+    let mut entries = Vec::with_capacity(entry_count as usize);
+    let mut prev_key_id = None;
+
+    for i in 0..entry_count {
+        let offset = (i as usize) * RELEASE_ENTRY_SIZE;
+        let (physical_key, variant_count, first_clip) =
+            read_entry(&data[offset..offset + RELEASE_ENTRY_SIZE], &mut prev_key_id)?;
+
+        entries.push(ReleaseEntry {
+            physical_key,
+            release_variant_count: variant_count,
+            first_release_clip: first_clip,
+        });
+    }
+
+    Ok(entries)
+}
+
+/// Reads one 8-byte table entry, validating the key id, sort order, and
+/// variant count. Used by both the key table and the release table.
+fn read_entry(
+    entry_data: &[u8],
+    prev_key_id: &mut Option<u16>,
+) -> PackResult<(PhysicalKey, u16, u32)> {
+    let physical_key_id = u16::from_le_bytes([entry_data[0], entry_data[1]]);
+    let variant_count = u16::from_le_bytes([entry_data[2], entry_data[3]]);
+    let first_clip =
+        u32::from_le_bytes([entry_data[4], entry_data[5], entry_data[6], entry_data[7]]);
+
+    let physical_key = PhysicalKey::from_u16(physical_key_id).ok_or(PackError::InvalidKeyId(
+        physical_key_id,
+        PhysicalKey::COUNT as u16 - 1,
+    ))?;
+
+    if let Some(prev) = *prev_key_id {
+        if physical_key_id <= prev {
+            return Err(PackError::KeysNotSorted(physical_key_id, prev));
+        }
+    }
+    *prev_key_id = Some(physical_key_id);
+
+    if variant_count == 0 || variant_count > MAX_VARIANTS_PER_KEY {
+        return Err(PackError::InvalidVariantCount {
+            key: physical_key_id,
+            count: variant_count,
+            max: MAX_VARIANTS_PER_KEY,
+        });
+    }
+
+    Ok((physical_key, variant_count, first_clip))
 }
 
 /// Parses clip table from bytes.
@@ -192,6 +243,11 @@ pub struct Metadata {
     pub description: String,
     pub license: String,
     pub source: String,
+    /// Switch category (`linear`, `tactile`, `clicky`, or empty).
+    ///
+    /// Written only by format version 2. A version 1 reader ignores it, and a
+    /// version 1 pack never writes it, so the v1 byte layout is unchanged.
+    pub category: String,
 }
 
 pub fn parse_metadata(data: &[u8], metadata_size: u32) -> PackResult<Metadata> {
@@ -205,52 +261,57 @@ pub fn parse_metadata(data: &[u8], metadata_size: u32) -> PackResult<Metadata> {
     let mut metadata = Metadata::default();
     let mut offset = 0u32;
 
-    // Helper to read a length-prefixed string
-    let mut read_string = |_field_name: &str| -> PackResult<String> {
-        if offset + 4 > metadata_size {
-            return Err(PackError::MetadataOverflow {
-                offset,
-                length: 4,
-                size: metadata_size,
-            });
-        }
+    metadata.name = read_string(data, &mut offset, metadata_size)?;
+    metadata.author = read_string(data, &mut offset, metadata_size)?;
+    metadata.description = read_string(data, &mut offset, metadata_size)?;
+    metadata.license = read_string(data, &mut offset, metadata_size)?;
+    metadata.source = read_string(data, &mut offset, metadata_size)?;
 
-        let len = u32::from_le_bytes([
-            data[offset as usize],
-            data[offset as usize + 1],
-            data[offset as usize + 2],
-            data[offset as usize + 3],
-        ]);
-        offset += 4;
-
-        if len > MAX_STRING_SIZE {
-            return Err(PackError::InvalidStringLength(len, MAX_STRING_SIZE));
-        }
-
-        if offset + len > metadata_size {
-            return Err(PackError::MetadataOverflow {
-                offset,
-                length: len,
-                size: metadata_size,
-            });
-        }
-
-        let string_data = &data[offset as usize..(offset + len) as usize];
-        offset += len;
-
-        let s = std::str::from_utf8(string_data).map_err(|_| PackError::InvalidUtf8)?;
-
-        Ok(s.to_string())
-    };
-
-    // Parse each field (optional - length 0 means omitted)
-    metadata.name = read_string("name")?;
-    metadata.author = read_string("author")?;
-    metadata.description = read_string("description")?;
-    metadata.license = read_string("license")?;
-    metadata.source = read_string("source")?;
+    // Version 2 appends one more length-prefixed string. Older packs simply
+    // end here; the trailing bytes of a v2 pack carry the category.
+    if offset + 4 <= metadata_size {
+        metadata.category = read_string(data, &mut offset, metadata_size)?;
+    }
 
     Ok(metadata)
+}
+
+/// Reads one length-prefixed UTF-8 string at `offset`, advancing it.
+fn read_string(data: &[u8], offset: &mut u32, metadata_size: u32) -> PackResult<String> {
+    if *offset + 4 > metadata_size {
+        return Err(PackError::MetadataOverflow {
+            offset: *offset,
+            length: 4,
+            size: metadata_size,
+        });
+    }
+
+    let len = u32::from_le_bytes([
+        data[*offset as usize],
+        data[*offset as usize + 1],
+        data[*offset as usize + 2],
+        data[*offset as usize + 3],
+    ]);
+    *offset += 4;
+
+    if len > MAX_STRING_SIZE {
+        return Err(PackError::InvalidStringLength(len, MAX_STRING_SIZE));
+    }
+
+    if *offset + len > metadata_size {
+        return Err(PackError::MetadataOverflow {
+            offset: *offset,
+            length: len,
+            size: metadata_size,
+        });
+    }
+
+    let string_data = &data[*offset as usize..(*offset + len) as usize];
+    *offset += len;
+
+    let s = std::str::from_utf8(string_data).map_err(|_| PackError::InvalidUtf8)?;
+
+    Ok(s.to_string())
 }
 
 #[cfg(test)]

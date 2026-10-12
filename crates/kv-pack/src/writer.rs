@@ -31,12 +31,16 @@ pub struct PackPlan<'a> {
     pub sample_rate: u32,
     /// Number of key entries.
     pub key_count: u32,
+    /// Number of release entries (0 writes a version 1 pack).
+    pub release_count: u32,
     /// Number of clip entries.
     pub clip_count: u32,
     /// Encoded metadata section.
     pub metadata: Vec<u8>,
     /// Encoded key table (`key_count * 8` bytes).
     pub key_table: Vec<u8>,
+    /// Encoded release table (`release_count * 8` bytes; empty for v1).
+    pub release_table: Vec<u8>,
     /// Encoded clip table (`clip_count * 24` bytes).
     pub clip_table: Vec<u8>,
     /// Clips in clip-table order.
@@ -54,21 +58,35 @@ pub enum WriteStage {
     Committed,
 }
 
-/// Encodes the metadata section: five length-prefixed UTF-8 strings.
+/// Encodes the metadata section: length-prefixed UTF-8 strings.
 ///
 /// Order (fixed by the format): `name`, `author`, `description`, `license`,
-/// `source`.
+/// `source`, and — only when `category` is non-empty — `category`. A pack
+/// without a category is byte-for-byte a version 1 metadata section.
 pub fn encode_metadata(
     name: &str,
     author: &str,
     description: &str,
     license: &str,
     source: &str,
+    category: &str,
 ) -> PackResult<Vec<u8>> {
     let mut buf = Vec::new();
 
     for value in [name, author, description, license, source] {
         let bytes = value.as_bytes();
+        let len = bytes.len() as u32;
+
+        if len > MAX_STRING_SIZE {
+            return Err(PackError::InvalidStringLength(len, MAX_STRING_SIZE));
+        }
+
+        buf.extend_from_slice(&len.to_le_bytes());
+        buf.extend_from_slice(bytes);
+    }
+
+    if !category.is_empty() {
+        let bytes = category.as_bytes();
         let len = bytes.len() as u32;
 
         if len > MAX_STRING_SIZE {
@@ -90,12 +108,22 @@ pub fn encode_metadata(
 }
 
 /// Encodes the fixed-size 120-byte header.
+///
+/// Version 2 (release clips present) reuses the first 12 reserved bytes for
+/// the release table pointer; version 1 leaves every reserved byte zero, so
+/// existing packs stay byte-identical.
 fn encode_header(plan: &PackPlan<'_>) -> Vec<u8> {
     let mut h = Vec::with_capacity(HEADER_SIZE as usize);
     let layout = plan.layout;
 
+    let version = if plan.release_count > 0 {
+        FORMAT_VERSION_RELEASE
+    } else {
+        FORMAT_VERSION
+    };
+
     h.extend_from_slice(&MAGIC);
-    h.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+    h.extend_from_slice(&version.to_le_bytes());
     h.extend_from_slice(&0u16.to_le_bytes()); // flags
     h.extend_from_slice(&HEADER_SIZE.to_le_bytes());
     h.extend_from_slice(&layout.file_size.to_le_bytes());
@@ -112,7 +140,14 @@ fn encode_header(plan: &PackPlan<'_>) -> Vec<u8> {
     h.extend_from_slice(&plan.sample_rate.to_le_bytes());
     h.extend_from_slice(&1u16.to_le_bytes()); // channels = 1 (mono)
     h.extend_from_slice(&SAMPLE_FORMAT_I16LE.to_le_bytes());
-    h.extend_from_slice(&[0u8; 28]); // reserved
+
+    if plan.release_count > 0 {
+        h.extend_from_slice(&layout.release_table_offset.to_le_bytes());
+        h.extend_from_slice(&layout.release_table_size.to_le_bytes());
+        h.extend_from_slice(&[0u8; HEADER_SIZE as usize - RESERVED_TAIL_ZERO]); // tail reserved
+    } else {
+        h.extend_from_slice(&[0u8; HEADER_SIZE as usize - RELEASE_TABLE_OFFSET_FIELD]);
+    }
 
     debug_assert_eq!(h.len(), HEADER_SIZE as usize);
     h
@@ -135,6 +170,13 @@ pub fn write_pack<W: Write>(w: &mut W, plan: &PackPlan<'_>) -> PackResult<()> {
     emit(w, &encode_header(plan))?;
     emit(w, &plan.metadata)?;
     emit(w, &plan.key_table)?;
+    if !plan.release_table.is_empty() {
+        debug_assert_eq!(
+            plan.release_table.len(),
+            plan.release_count as usize * RELEASE_ENTRY_SIZE
+        );
+        emit(w, &plan.release_table)?;
+    }
     emit(w, &plan.clip_table)?;
 
     if plan.layout.padding > 0 {
@@ -234,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_encode_metadata_lengths() {
-        let meta = encode_metadata("n", "a", "d", "l", "s").unwrap();
+        let meta = encode_metadata("n", "a", "d", "l", "s", "").unwrap();
         let mut expected = Vec::new();
         for v in ["n", "a", "d", "l", "s"] {
             expected.extend_from_slice(&1u32.to_le_bytes());
@@ -247,7 +289,7 @@ mod tests {
     fn test_encode_metadata_rejects_oversized_string() {
         let big = "x".repeat((MAX_STRING_SIZE + 1) as usize);
         assert!(matches!(
-            encode_metadata(&big, "", "", "", ""),
+            encode_metadata(&big, "", "", "", "", ""),
             Err(PackError::InvalidStringLength(..))
         ));
     }

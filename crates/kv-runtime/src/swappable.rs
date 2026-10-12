@@ -281,6 +281,24 @@ impl SoundSource for SwappableSource {
         command
     }
 
+    #[inline]
+    fn play_release(&self, key: PhysicalKey, state: &mut VariantState) -> Option<PlayCommand> {
+        // Same producer accounting as `play`: a queued release command also
+        // points into the parked pack's mapping.
+        self.producers.fetch_add(1, Ordering::SeqCst);
+        let command = {
+            let slot = self.lock();
+            match slot.current.as_ref() {
+                Some(player) => player.play_release(key, state),
+                None => None,
+            }
+        };
+        if command.is_none() {
+            self.producers.fetch_sub(1, Ordering::SeqCst);
+        }
+        command
+    }
+
     fn queued(&self, _command: PlayCommand) {
         self.producers.fetch_sub(1, Ordering::SeqCst);
         // Where a swap's parked pack is released in production: an input

@@ -34,6 +34,7 @@ mod pack_test;
 mod procfs;
 mod security_test;
 mod soak_test;
+mod soundpack_acceptance_test;
 mod stress;
 
 use cli::{Cli, Command, ConfigAction, PackAction};
@@ -181,6 +182,7 @@ fn main() -> Result<()> {
             })
         }
         Some(Command::SecurityTest) => security_test::run(),
+        Some(Command::SoundpackAcceptanceTest) => soundpack_acceptance_test::run(),
         Some(Command::ConfigTest) => config_test::run(),
         Some(Command::Analyze { sources }) => audio_cmd::analyze(&sources),
         Some(Command::Process { input, output }) => audio_cmd::process(&input, &output),
@@ -298,6 +300,9 @@ fn inspect_pack(path: &Path, show_clips: bool) -> Result<()> {
     let stats = pack.stats();
 
     println!("Pack: {}", stats.name);
+    if !meta.category.is_empty() {
+        println!("  category:    {}", meta.category);
+    }
     if !meta.author.is_empty() {
         println!("  author:      {}", meta.author);
     }
@@ -328,6 +333,14 @@ fn inspect_pack(path: &Path, show_clips: bool) -> Result<()> {
         "  key table offset {:>10} size {:>6}",
         header.key_table_offset, header.key_table_size
     );
+    if header.release_table_size > 0 {
+        println!(
+            "  release table offset {:>6} size {:>6} ({} keys)",
+            header.release_table_offset,
+            header.release_table_size,
+            pack.release_key_count()
+        );
+    }
     println!(
         "  clip table offset {:>9} size {:>6}",
         header.clip_table_offset, header.clip_table_size
@@ -341,6 +354,34 @@ fn inspect_pack(path: &Path, show_clips: bool) -> Result<()> {
         "  {} keys, {} clips, {} Hz, {} channel, {} logical frames",
         stats.keys, stats.clips, stats.sample_rate, stats.channels, stats.sample_frames
     );
+
+    let missing = pack.missing_keys();
+    println!(
+        "  coverage:    {}/{} physical keys",
+        PhysicalKey::COUNT - missing.len(),
+        PhysicalKey::COUNT
+    );
+    if pack.has_release_sounds() {
+        println!(
+            "  release:     {} of {} keys carry a release clip",
+            pack.release_key_count(),
+            PhysicalKey::COUNT
+        );
+    }
+    if !missing.is_empty() {
+        let shown: Vec<String> = missing.iter().take(12).map(ToString::to_string).collect();
+        let more = if missing.len() > shown.len() {
+            format!(" (+{} more)", missing.len() - shown.len())
+        } else {
+            String::new()
+        };
+        println!(
+            "               no sound for {}{} - those presses are silent, never \
+             substituted with another key's clip",
+            shown.join(", "),
+            more
+        );
+    }
 
     println!("Keys:");
     for key in pack.keys() {
@@ -400,6 +441,31 @@ fn run_engine(
         "  {}: {} keys, {} clips, {} Hz",
         stats.name, stats.keys, stats.clips, stats.sample_rate
     );
+    let missing = runtime
+        .pack()
+        .map(|loaded| loaded.missing_keys())
+        .unwrap_or_default();
+    if missing.is_empty() {
+        println!(
+            "  coverage: {}/{} physical keys",
+            PhysicalKey::COUNT,
+            PhysicalKey::COUNT
+        );
+    } else {
+        let shown: Vec<String> = missing.iter().take(8).map(ToString::to_string).collect();
+        let more = if missing.len() > shown.len() {
+            format!(" (+{} more)", missing.len() - shown.len())
+        } else {
+            String::new()
+        };
+        println!(
+            "  coverage: {}/{} physical keys - no sound for {}{}",
+            PhysicalKey::COUNT - missing.len(),
+            PhysicalKey::COUNT,
+            shown.join(", "),
+            more
+        );
+    }
     if verbose {
         println!("  config: {}", config_path.display());
         println!("  volume: {}", config.volume);
@@ -452,9 +518,16 @@ fn run_engine(
         let input = runtime.input_stats();
         let audio = runtime.audio_stats();
         println!(
-            "Done: {} presses, {} commands queued, {} frames rendered, peak {:.3}",
+            "Done: {} presses, {} commands queued, {} frame(s) rendered, peak {:.3}",
             input.key_presses, input.commands_generated, audio.frames_rendered, audio.peak
         );
+        if input.missing_sounds > 0 {
+            println!(
+                "  {} press(es) had no clip in the selected pack and stayed silent \
+                 (never substituted)",
+                input.missing_sounds
+            );
+        }
         if audio.frames_rendered == 0 {
             anyhow::bail!("audio never rendered a frame");
         }
@@ -521,42 +594,100 @@ fn list_packs(verbose: bool) -> Result<()> {
 
     println!("{} pack(s):", found.len());
     let mut width = 4usize;
-    let mut rows = Vec::new();
+
+    struct Row {
+        name: String,
+        keys: u32,
+        clips: u32,
+        rate: u32,
+        path: String,
+        error: Option<String>,
+        coverage: Option<u32>,
+        category: String,
+        release_keys: u32,
+    }
+
+    let mut rows: Vec<Row> = Vec::new();
     for path in &found {
         match KvPack::open(path) {
             Ok(loaded) => {
                 let stats = loaded.stats();
                 width = width.max(stats.name.len());
-                rows.push((
-                    stats.name,
-                    stats.keys,
-                    stats.clips,
-                    stats.sample_rate,
-                    path.display().to_string(),
-                    None::<String>,
-                ));
+                // `-v` exists to answer "why is that key silent?", so it shows
+                // coverage - the count a user can check against 104.
+                let coverage = if verbose {
+                    Some((PhysicalKey::COUNT - loaded.missing_keys().len()) as u32)
+                } else {
+                    None
+                };
+                rows.push(Row {
+                    name: stats.name,
+                    keys: stats.keys,
+                    clips: stats.clips,
+                    rate: stats.sample_rate,
+                    path: path.display().to_string(),
+                    error: None,
+                    coverage,
+                    category: loaded.metadata().category.clone(),
+                    release_keys: stats.release_keys,
+                });
             }
             Err(error) => {
                 width = width.max(4);
-                rows.push((
-                    path.file_stem()
+                rows.push(Row {
+                    name: path
+                        .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("?")
                         .to_string(),
-                    0,
-                    0,
-                    0,
-                    path.display().to_string(),
-                    Some(error.to_string()),
-                ));
+                    keys: 0,
+                    clips: 0,
+                    rate: 0,
+                    path: path.display().to_string(),
+                    error: Some(error.to_string()),
+                    coverage: None,
+                    category: String::new(),
+                    release_keys: 0,
+                });
             }
         }
     }
-    for (name, keys, clips, rate, path, error) in rows {
-        match error {
-            Some(error) => println!("  {name:<width$}  INVALID: {error}"),
+    for row in rows {
+        match row.error {
+            Some(error) => println!("  {:<width$}  INVALID: {error}", row.name),
             None => {
-                println!("  {name:<width$}  {keys:>2} keys  {clips:>3} clips  {rate:>5} Hz  {path}")
+                let category = if row.category.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", row.category)
+                };
+                match row.coverage {
+                    Some(covered) => println!(
+                        "  {:<width$}{category}  {keys:>2} keys  {clips:>3} clips  \
+                     coverage {covered}/{total}  release={release}  {rate:>5} Hz  {path}",
+                        row.name,
+                        keys = row.keys,
+                        clips = row.clips,
+                        total = PhysicalKey::COUNT,
+                        release = row.release_keys,
+                        rate = row.rate,
+                        path = row.path,
+                        width = width
+                    ),
+                    None => {
+                        println!(
+                            "  {:<width$}{category}  {keys:>2} keys  {clips:>3} clips  \
+                         release={release}  {rate:>5} Hz  {path}",
+                            row.name,
+                            keys = row.keys,
+                            clips = row.clips,
+                            release = row.release_keys,
+                            rate = row.rate,
+                            path = row.path,
+                            width = width
+                        )
+                    }
+                }
             }
         }
     }
@@ -714,3 +845,6 @@ fn input_test(seconds: u64, verbose: bool) -> Result<()> {
     println!("Devices tracked: {}", backend.device_count());
     Ok(())
 }
+
+#[cfg(test)]
+mod production_pack_test;

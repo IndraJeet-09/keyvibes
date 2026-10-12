@@ -3,8 +3,30 @@
 /// Magic number: "KVPACK\0\0"
 pub const MAGIC: [u8; 8] = [0x4B, 0x56, 0x50, 0x41, 0x43, 0x4B, 0x00, 0x00];
 
-/// Format version (major)
+/// Format version (major).
+///
+/// Version 1 packs carry press sounds only. Version 2 is a strictly additive
+/// extension: identical layout plus a release-clip table and one extra
+/// metadata string (`category`). Version 1 packs stay byte-for-byte identical,
+/// and a version 1 writer never emits a version 2 file.
 pub const FORMAT_VERSION: u16 = 1;
+
+/// Additive version carrying release clips and the `category` metadata string.
+pub const FORMAT_VERSION_RELEASE: u16 = 2;
+
+/// Byte offset of the `release_table_offset` field inside the header's
+/// reserved area (version 2 only; version 1 requires it to be zero).
+pub const RELEASE_TABLE_OFFSET_FIELD: usize = 92;
+
+/// Byte offset of the `release_table_size` field inside the header's
+/// reserved area (version 2 only; version 1 requires it to be zero).
+pub const RELEASE_TABLE_SIZE_FIELD: usize = 100;
+
+/// Bytes at the end of the header that must remain zero in every version.
+pub const RESERVED_TAIL_ZERO: usize = 104;
+
+/// Size of a release entry in bytes (identical shape to a key entry).
+pub const RELEASE_ENTRY_SIZE: usize = 8;
 
 /// Header size in bytes
 pub const HEADER_SIZE: u32 = 120;

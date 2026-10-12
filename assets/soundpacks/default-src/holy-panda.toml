@@ -1,9 +1,16 @@
-# Source manifest for the "Holy Panda" pack.
-#
+# Source manifest for the Holy Panda pack.
 # Shares the source audio with Default (same directory, so the same WAV
 # files), but carries its own identity, description and dither seed - which
 # is exactly what `keyvibes --pack "Holy Panda"` has to be able to tell apart
 # from `keyvibes --pack "Default"`.
+
+# Provenance: the WAVs in `sounds/` are produced by scripts/generate_sounds.py
+# from a physical model of a key press. They are NOT field recordings of real
+# switches, and nothing in this repository claims they are. Swapping in
+# genuine recordings is a content change; see docs/soundpacks.md.
+#
+# Regenerate the sources:
+#   python3 scripts/generate_sounds.py
 #
 # Build with:
 #   keyvibes pack build assets/soundpacks/default-src/holy-panda.toml \
@@ -13,9 +20,9 @@
 name = "Holy Panda"
 author = "KeyVibes"
 version = "1.0.0"
-description = "Two-variant tactile click pack for the home row, space bar, and digit row."
+description = "Modeled tactile-switch press (synthesized, not a field recording) for all 104 keys, two variants per key. Separate identity from Default so pack switching is observable."
 license = "MIT OR Apache-2.0"
-source = "keyvibes"
+source = "keyvibes-synth-switch-v1"
 sample_rate = 48000
 
 [samples]
@@ -24,6 +31,174 @@ format = "wav"
 [processing]
 enabled = true
 dither_seed = 90210
+
+[[keys]]
+physical_key = "Escape"
+samples = ["sounds/escape-0.wav", "sounds/escape-1.wav"]
+
+[[keys]]
+physical_key = "F1"
+samples = ["sounds/f1-0.wav", "sounds/f1-1.wav"]
+
+[[keys]]
+physical_key = "F2"
+samples = ["sounds/f2-0.wav", "sounds/f2-1.wav"]
+
+[[keys]]
+physical_key = "F3"
+samples = ["sounds/f3-0.wav", "sounds/f3-1.wav"]
+
+[[keys]]
+physical_key = "F4"
+samples = ["sounds/f4-0.wav", "sounds/f4-1.wav"]
+
+[[keys]]
+physical_key = "F5"
+samples = ["sounds/f5-0.wav", "sounds/f5-1.wav"]
+
+[[keys]]
+physical_key = "F6"
+samples = ["sounds/f6-0.wav", "sounds/f6-1.wav"]
+
+[[keys]]
+physical_key = "F7"
+samples = ["sounds/f7-0.wav", "sounds/f7-1.wav"]
+
+[[keys]]
+physical_key = "F8"
+samples = ["sounds/f8-0.wav", "sounds/f8-1.wav"]
+
+[[keys]]
+physical_key = "F9"
+samples = ["sounds/f9-0.wav", "sounds/f9-1.wav"]
+
+[[keys]]
+physical_key = "F10"
+samples = ["sounds/f10-0.wav", "sounds/f10-1.wav"]
+
+[[keys]]
+physical_key = "F11"
+samples = ["sounds/f11-0.wav", "sounds/f11-1.wav"]
+
+[[keys]]
+physical_key = "F12"
+samples = ["sounds/f12-0.wav", "sounds/f12-1.wav"]
+
+[[keys]]
+physical_key = "Grave"
+samples = ["sounds/grave-0.wav", "sounds/grave-1.wav"]
+
+[[keys]]
+physical_key = "Digit1"
+samples = ["sounds/digit1-0.wav", "sounds/digit1-1.wav"]
+
+[[keys]]
+physical_key = "Digit2"
+samples = ["sounds/digit2-0.wav", "sounds/digit2-1.wav"]
+
+[[keys]]
+physical_key = "Digit3"
+samples = ["sounds/digit3-0.wav", "sounds/digit3-1.wav"]
+
+[[keys]]
+physical_key = "Digit4"
+samples = ["sounds/digit4-0.wav", "sounds/digit4-1.wav"]
+
+[[keys]]
+physical_key = "Digit5"
+samples = ["sounds/digit5-0.wav", "sounds/digit5-1.wav"]
+
+[[keys]]
+physical_key = "Digit6"
+samples = ["sounds/digit6-0.wav", "sounds/digit6-1.wav"]
+
+[[keys]]
+physical_key = "Digit7"
+samples = ["sounds/digit7-0.wav", "sounds/digit7-1.wav"]
+
+[[keys]]
+physical_key = "Digit8"
+samples = ["sounds/digit8-0.wav", "sounds/digit8-1.wav"]
+
+[[keys]]
+physical_key = "Digit9"
+samples = ["sounds/digit9-0.wav", "sounds/digit9-1.wav"]
+
+[[keys]]
+physical_key = "Digit0"
+samples = ["sounds/digit0-0.wav", "sounds/digit0-1.wav"]
+
+[[keys]]
+physical_key = "Minus"
+samples = ["sounds/minus-0.wav", "sounds/minus-1.wav"]
+
+[[keys]]
+physical_key = "Equal"
+samples = ["sounds/equal-0.wav", "sounds/equal-1.wav"]
+
+[[keys]]
+physical_key = "Backspace"
+samples = ["sounds/backspace-0.wav", "sounds/backspace-1.wav"]
+
+[[keys]]
+physical_key = "Tab"
+samples = ["sounds/tab-0.wav", "sounds/tab-1.wav"]
+
+[[keys]]
+physical_key = "Q"
+samples = ["sounds/q-0.wav", "sounds/q-1.wav"]
+
+[[keys]]
+physical_key = "W"
+samples = ["sounds/w-0.wav", "sounds/w-1.wav"]
+
+[[keys]]
+physical_key = "E"
+samples = ["sounds/e-0.wav", "sounds/e-1.wav"]
+
+[[keys]]
+physical_key = "R"
+samples = ["sounds/r-0.wav", "sounds/r-1.wav"]
+
+[[keys]]
+physical_key = "T"
+samples = ["sounds/t-0.wav", "sounds/t-1.wav"]
+
+[[keys]]
+physical_key = "Y"
+samples = ["sounds/y-0.wav", "sounds/y-1.wav"]
+
+[[keys]]
+physical_key = "U"
+samples = ["sounds/u-0.wav", "sounds/u-1.wav"]
+
+[[keys]]
+physical_key = "I"
+samples = ["sounds/i-0.wav", "sounds/i-1.wav"]
+
+[[keys]]
+physical_key = "O"
+samples = ["sounds/o-0.wav", "sounds/o-1.wav"]
+
+[[keys]]
+physical_key = "P"
+samples = ["sounds/p-0.wav", "sounds/p-1.wav"]
+
+[[keys]]
+physical_key = "LeftBracket"
+samples = ["sounds/leftbracket-0.wav", "sounds/leftbracket-1.wav"]
+
+[[keys]]
+physical_key = "RightBracket"
+samples = ["sounds/rightbracket-0.wav", "sounds/rightbracket-1.wav"]
+
+[[keys]]
+physical_key = "Backslash"
+samples = ["sounds/backslash-0.wav", "sounds/backslash-1.wav"]
+
+[[keys]]
+physical_key = "CapsLock"
+samples = ["sounds/capslock-0.wav", "sounds/capslock-1.wav"]
 
 [[keys]]
 physical_key = "A"
@@ -42,6 +217,14 @@ physical_key = "F"
 samples = ["sounds/f-0.wav", "sounds/f-1.wav"]
 
 [[keys]]
+physical_key = "G"
+samples = ["sounds/g-0.wav", "sounds/g-1.wav"]
+
+[[keys]]
+physical_key = "H"
+samples = ["sounds/h-0.wav", "sounds/h-1.wav"]
+
+[[keys]]
 physical_key = "J"
 samples = ["sounds/j-0.wav", "sounds/j-1.wav"]
 
@@ -54,9 +237,213 @@ physical_key = "L"
 samples = ["sounds/l-0.wav", "sounds/l-1.wav"]
 
 [[keys]]
+physical_key = "Semicolon"
+samples = ["sounds/semicolon-0.wav", "sounds/semicolon-1.wav"]
+
+[[keys]]
+physical_key = "Apostrophe"
+samples = ["sounds/apostrophe-0.wav", "sounds/apostrophe-1.wav"]
+
+[[keys]]
+physical_key = "Enter"
+samples = ["sounds/enter-0.wav", "sounds/enter-1.wav"]
+
+[[keys]]
+physical_key = "LeftShift"
+samples = ["sounds/leftshift-0.wav", "sounds/leftshift-1.wav"]
+
+[[keys]]
+physical_key = "Z"
+samples = ["sounds/z-0.wav", "sounds/z-1.wav"]
+
+[[keys]]
+physical_key = "X"
+samples = ["sounds/x-0.wav", "sounds/x-1.wav"]
+
+[[keys]]
+physical_key = "C"
+samples = ["sounds/c-0.wav", "sounds/c-1.wav"]
+
+[[keys]]
+physical_key = "V"
+samples = ["sounds/v-0.wav", "sounds/v-1.wav"]
+
+[[keys]]
+physical_key = "B"
+samples = ["sounds/b-0.wav", "sounds/b-1.wav"]
+
+[[keys]]
+physical_key = "N"
+samples = ["sounds/n-0.wav", "sounds/n-1.wav"]
+
+[[keys]]
+physical_key = "M"
+samples = ["sounds/m-0.wav", "sounds/m-1.wav"]
+
+[[keys]]
+physical_key = "Comma"
+samples = ["sounds/comma-0.wav", "sounds/comma-1.wav"]
+
+[[keys]]
+physical_key = "Period"
+samples = ["sounds/period-0.wav", "sounds/period-1.wav"]
+
+[[keys]]
+physical_key = "Slash"
+samples = ["sounds/slash-0.wav", "sounds/slash-1.wav"]
+
+[[keys]]
+physical_key = "RightShift"
+samples = ["sounds/rightshift-0.wav", "sounds/rightshift-1.wav"]
+
+[[keys]]
+physical_key = "LeftCtrl"
+samples = ["sounds/leftctrl-0.wav", "sounds/leftctrl-1.wav"]
+
+[[keys]]
+physical_key = "LeftSuper"
+samples = ["sounds/leftsuper-0.wav", "sounds/leftsuper-1.wav"]
+
+[[keys]]
+physical_key = "LeftAlt"
+samples = ["sounds/leftalt-0.wav", "sounds/leftalt-1.wav"]
+
+[[keys]]
 physical_key = "Space"
 samples = ["sounds/space-0.wav", "sounds/space-1.wav"]
 
 [[keys]]
-physical_key = "Digit1"
-samples = ["sounds/digit1-0.wav", "sounds/digit1-1.wav"]
+physical_key = "RightAlt"
+samples = ["sounds/rightalt-0.wav", "sounds/rightalt-1.wav"]
+
+[[keys]]
+physical_key = "RightSuper"
+samples = ["sounds/rightsuper-0.wav", "sounds/rightsuper-1.wav"]
+
+[[keys]]
+physical_key = "Menu"
+samples = ["sounds/menu-0.wav", "sounds/menu-1.wav"]
+
+[[keys]]
+physical_key = "RightCtrl"
+samples = ["sounds/rightctrl-0.wav", "sounds/rightctrl-1.wav"]
+
+[[keys]]
+physical_key = "Insert"
+samples = ["sounds/insert-0.wav", "sounds/insert-1.wav"]
+
+[[keys]]
+physical_key = "Delete"
+samples = ["sounds/delete-0.wav", "sounds/delete-1.wav"]
+
+[[keys]]
+physical_key = "Home"
+samples = ["sounds/home-0.wav", "sounds/home-1.wav"]
+
+[[keys]]
+physical_key = "End"
+samples = ["sounds/end-0.wav", "sounds/end-1.wav"]
+
+[[keys]]
+physical_key = "PageUp"
+samples = ["sounds/pageup-0.wav", "sounds/pageup-1.wav"]
+
+[[keys]]
+physical_key = "PageDown"
+samples = ["sounds/pagedown-0.wav", "sounds/pagedown-1.wav"]
+
+[[keys]]
+physical_key = "ArrowUp"
+samples = ["sounds/arrowup-0.wav", "sounds/arrowup-1.wav"]
+
+[[keys]]
+physical_key = "ArrowDown"
+samples = ["sounds/arrowdown-0.wav", "sounds/arrowdown-1.wav"]
+
+[[keys]]
+physical_key = "ArrowLeft"
+samples = ["sounds/arrowleft-0.wav", "sounds/arrowleft-1.wav"]
+
+[[keys]]
+physical_key = "ArrowRight"
+samples = ["sounds/arrowright-0.wav", "sounds/arrowright-1.wav"]
+
+[[keys]]
+physical_key = "NumLock"
+samples = ["sounds/numlock-0.wav", "sounds/numlock-1.wav"]
+
+[[keys]]
+physical_key = "NumpadDivide"
+samples = ["sounds/numpaddivide-0.wav", "sounds/numpaddivide-1.wav"]
+
+[[keys]]
+physical_key = "NumpadMultiply"
+samples = ["sounds/numpadmultiply-0.wav", "sounds/numpadmultiply-1.wav"]
+
+[[keys]]
+physical_key = "NumpadSubtract"
+samples = ["sounds/numpadsubtract-0.wav", "sounds/numpadsubtract-1.wav"]
+
+[[keys]]
+physical_key = "NumpadAdd"
+samples = ["sounds/numpadadd-0.wav", "sounds/numpadadd-1.wav"]
+
+[[keys]]
+physical_key = "NumpadEnter"
+samples = ["sounds/numpadenter-0.wav", "sounds/numpadenter-1.wav"]
+
+[[keys]]
+physical_key = "NumpadDecimal"
+samples = ["sounds/numpaddecimal-0.wav", "sounds/numpaddecimal-1.wav"]
+
+[[keys]]
+physical_key = "Numpad0"
+samples = ["sounds/numpad0-0.wav", "sounds/numpad0-1.wav"]
+
+[[keys]]
+physical_key = "Numpad1"
+samples = ["sounds/numpad1-0.wav", "sounds/numpad1-1.wav"]
+
+[[keys]]
+physical_key = "Numpad2"
+samples = ["sounds/numpad2-0.wav", "sounds/numpad2-1.wav"]
+
+[[keys]]
+physical_key = "Numpad3"
+samples = ["sounds/numpad3-0.wav", "sounds/numpad3-1.wav"]
+
+[[keys]]
+physical_key = "Numpad4"
+samples = ["sounds/numpad4-0.wav", "sounds/numpad4-1.wav"]
+
+[[keys]]
+physical_key = "Numpad5"
+samples = ["sounds/numpad5-0.wav", "sounds/numpad5-1.wav"]
+
+[[keys]]
+physical_key = "Numpad6"
+samples = ["sounds/numpad6-0.wav", "sounds/numpad6-1.wav"]
+
+[[keys]]
+physical_key = "Numpad7"
+samples = ["sounds/numpad7-0.wav", "sounds/numpad7-1.wav"]
+
+[[keys]]
+physical_key = "Numpad8"
+samples = ["sounds/numpad8-0.wav", "sounds/numpad8-1.wav"]
+
+[[keys]]
+physical_key = "Numpad9"
+samples = ["sounds/numpad9-0.wav", "sounds/numpad9-1.wav"]
+
+[[keys]]
+physical_key = "PrintScreen"
+samples = ["sounds/printscreen-0.wav", "sounds/printscreen-1.wav"]
+
+[[keys]]
+physical_key = "ScrollLock"
+samples = ["sounds/scrolllock-0.wav", "sounds/scrolllock-1.wav"]
+
+[[keys]]
+physical_key = "Pause"
+samples = ["sounds/pause-0.wav", "sounds/pause-1.wav"]

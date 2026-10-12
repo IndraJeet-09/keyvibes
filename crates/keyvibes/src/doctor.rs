@@ -12,7 +12,7 @@
 
 use anyhow::Result;
 use kv_audio_pipewire::PipeWireStream;
-use kv_core::PlayCommand;
+use kv_core::{PhysicalKey, PlayCommand};
 use kv_pack::KvPack;
 use kv_ring::SpscRing;
 use kv_runtime::Runtime;
@@ -78,7 +78,7 @@ pub fn run(selector: Option<&str>) -> Result<()> {
         });
     }
 
-    let (packs, installed_row, selected_row) = gather_packs(selector, &config, &mut problems);
+    let (packs, pack_rows) = gather_packs(selector, &config, &mut problems);
     let input_rows = gather_input(&mut problems);
     let audio = gather_audio(&config, packs.selected.as_deref(), &mut problems);
 
@@ -117,7 +117,7 @@ pub fn run(selector: Option<&str>) -> Result<()> {
     println!();
 
     println!("Packs");
-    print_rows(&[installed_row, selected_row]);
+    print_rows(&pack_rows);
     println!();
 
     println!("Runtime");
@@ -275,7 +275,7 @@ fn gather_packs(
     selector: Option<&str>,
     config: &Config,
     problems: &mut Vec<Problem>,
-) -> (PackReport, Row, Row) {
+) -> (PackReport, Vec<Row>) {
     let installed = pack_locate::discover_unique();
     let names: Vec<String> = installed
         .iter()
@@ -333,14 +333,66 @@ fn gather_packs(
             });
             return (
                 PackReport { selected: None },
-                installed_row,
-                ("selected".to_string(), "<none>".to_string()),
+                vec![
+                    installed_row,
+                    ("selected".to_string(), "<none>".to_string()),
+                ],
             );
         }
     };
 
+    let mut rows = vec![
+        installed_row,
+        (
+            "selected".to_string(),
+            format!("{}  ({})", selected_name_for(&selected), selected.display()),
+        ),
+    ];
+
+    // Coverage is the answer to "why did that key make no sound": a pack
+    // that does not carry a key is silent for it, by policy, and never
+    // borrows another key's clip.
     match KvPack::open(&selected) {
-        Ok(loaded) => loaded.stats().name,
+        Ok(loaded) => {
+            let missing = loaded.missing_keys();
+            let covered = PhysicalKey::COUNT - missing.len();
+            rows.push((
+                "coverage".to_string(),
+                if missing.is_empty() {
+                    format!("{covered}/{} physical keys", PhysicalKey::COUNT)
+                } else {
+                    let shown: Vec<String> =
+                        missing.iter().take(8).map(ToString::to_string).collect();
+                    let more = if missing.len() > shown.len() {
+                        format!(" (+{} more)", missing.len() - shown.len())
+                    } else {
+                        String::new()
+                    };
+                    format!(
+                        "{covered}/{} physical keys - no sound for {}{}",
+                        PhysicalKey::COUNT,
+                        shown.join(", "),
+                        more
+                    )
+                },
+            ));
+            if !missing.is_empty() {
+                problems.push(Problem {
+                    what: "the selected sound pack does not cover every key".to_string(),
+                    why: format!(
+                        "{} of {} physical keys have no clip in \"{}\"; those presses are \
+                         counted and stay silent rather than playing another key's sound",
+                        missing.len(),
+                        PhysicalKey::COUNT,
+                        loaded.stats().name,
+                    ),
+                    fix: "rebuild the pack from its manifest, or pick a pack that covers \
+                          `keyvibes pack inspect <pack>`'s missing list"
+                        .to_string(),
+                    severity: Severity::Warning,
+                });
+            }
+        }
         Err(error) => {
             problems.push(Problem {
                 what: "the selected sound pack is not readable".to_string(),
@@ -348,19 +400,14 @@ fn gather_packs(
                 fix: format!("check it: `keyvibes pack validate {}`", selected.display()),
                 severity: Severity::Error,
             });
-            String::new()
         }
-    };
+    }
 
     (
         PackReport {
             selected: Some(selected.clone()),
         },
-        installed_row,
-        (
-            "selected".to_string(),
-            format!("{}  ({})", selected_name_for(&selected), selected.display()),
-        ),
+        rows,
     )
 }
 

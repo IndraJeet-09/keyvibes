@@ -78,6 +78,12 @@ pub struct AudioOptions {
     /// `None` means "whatever the session manager considers default", which
     /// is the normal desktop behaviour.
     pub output_device: Option<String>,
+    /// Lock-free settings shared with the RT callback.
+    ///
+    /// `None` means the engine builds one from `mixer`. The control plane
+    /// passes the same `Arc` on every (re)start so volume and variation
+    /// changes survive stream re-negotiation.
+    pub live: Option<Arc<kv_mixer::MixerLive>>,
 }
 
 impl AudioOptions {
@@ -89,6 +95,7 @@ impl AudioOptions {
             mixer: MixerSettings::default(),
             idle: IdleConfig::default(),
             output_device: None,
+            live: None,
         }
     }
 }
@@ -186,6 +193,7 @@ pub struct AudioEngine {
     idle: Arc<IdleState>,
     idle_stop: Arc<AtomicBool>,
     idle_handle: Option<JoinHandle<()>>,
+    mixer_live: Arc<kv_mixer::MixerLive>,
 }
 
 impl AudioEngine {
@@ -222,6 +230,7 @@ impl AudioEngine {
                 mixer: settings,
                 idle: idle_config,
                 output_device: None,
+                live: None,
             },
         )
     }
@@ -241,7 +250,15 @@ impl AudioEngine {
             mixer: settings,
             idle: idle_config,
             output_device,
+            live,
         } = options;
+        let live = live.unwrap_or_else(|| {
+            Arc::new(kv_mixer::MixerLive::from_parts(
+                settings.master_gain,
+                settings.variation.pitch.cents,
+                settings.variation.gain.db,
+            ))
+        });
         let stats = Arc::new(RtStats::new(output_rate));
         let lifecycle = Arc::new(LifecycleState::new());
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -258,6 +275,7 @@ impl AudioEngine {
         let thread_shutdown = shutdown.clone();
         let thread_queue = queue.clone();
         let thread_reconnect = reconnect_requested.clone();
+        let thread_live = live.clone();
 
         let handle = thread::Builder::new()
             .name("keyvibes-audio".to_string())
@@ -273,6 +291,7 @@ impl AudioEngine {
                         policy,
                         settings,
                         output_device,
+                        live: thread_live,
                     },
                     rx,
                     ready_tx,
@@ -319,7 +338,16 @@ impl AudioEngine {
             idle,
             idle_stop,
             idle_handle: Some(idle_handle),
+            mixer_live: live,
         })
+    }
+
+    /// The lock-free settings block the RT callback polls.
+    ///
+    /// Keep a clone: it survives stream re-negotiation, so a volume change
+    /// made while reconnecting is applied to the rebuilt stream.
+    pub fn mixer_live(&self) -> Arc<kv_mixer::MixerLive> {
+        self.mixer_live.clone()
     }
 
     /// Lock-free idle state (phase, pause/resume counts, quiet duration).
@@ -469,6 +497,7 @@ struct SupervisorCtx {
     policy: ReconnectPolicy,
     settings: MixerSettings,
     output_device: Option<String>,
+    live: Arc<kv_mixer::MixerLive>,
 }
 
 /// The supervisor loop: build, run, observe failure, back off, rebuild.
@@ -490,6 +519,7 @@ fn supervisor(
         policy,
         settings,
         output_device,
+        live,
     } = ctx;
     let mut ready_tx = Some(ready_tx);
     let mut receiver = Some(rx);
@@ -523,6 +553,7 @@ fn supervisor(
             stats.clone(),
             settings,
             output_device.as_deref(),
+            live.clone(),
         ) {
             Ok(connection) => connection,
             Err(error) => {

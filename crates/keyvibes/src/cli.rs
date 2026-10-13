@@ -144,6 +144,20 @@ pub enum Command {
         action: PackAction,
     },
 
+    /// Control a running engine over its local socket
+    ///
+    /// Talks to `keyvibes run` through a per-user unix socket (no network).
+    /// Every action prints the engine's state as JSON on success, so this
+    /// doubles as a scripting interface: `keyvibes ctl volume 0.5 | jq`.
+    Ctl {
+        #[command(subcommand)]
+        action: CtlAction,
+
+        /// Control socket path (default: $KEYVIBES_SOCKET or the XDG runtime dir)
+        #[arg(long, global = true)]
+        socket: Option<PathBuf>,
+    },
+
     // ------------------------------------------------- verification commands
     // The per-phase acceptance checks, all named `*-test` and all listed last
     // so the product is what a reader sees first. `acceptance-test` leads
@@ -298,6 +312,101 @@ pub enum ConfigAction {
         #[arg(long)]
         force: bool,
     },
+}
+
+/// Actions `keyvibes ctl` can send to a running engine.
+#[derive(Subcommand, Debug)]
+pub enum CtlAction {
+    /// Check the engine is alive and print its state
+    Ping,
+
+    /// Print the engine's full state (same as ping, semantically a query)
+    Status,
+
+    /// Enable sound on key presses
+    On,
+
+    /// Silence all key-triggered sound without stopping the engine
+    Off,
+
+    /// Set the master volume (0.0 - 1.0)
+    Volume {
+        /// New volume
+        value: f32,
+    },
+
+    /// Turn pitch and/or gain variation on or off
+    Variation {
+        /// Pitch deviation per press
+        #[arg(long, conflicts_with_all = ["no_pitch", "gain", "no_gain"])]
+        pitch: bool,
+        /// Disable pitch deviation
+        #[arg(long, conflicts_with_all = ["pitch", "gain", "no_gain"])]
+        no_pitch: bool,
+        /// Gain deviation per press
+        #[arg(long, conflicts_with_all = ["pitch", "no_pitch", "no_gain"])]
+        gain: bool,
+        /// Disable gain deviation
+        #[arg(long, conflicts_with_all = ["pitch", "no_pitch", "gain"])]
+        no_gain: bool,
+    },
+
+    /// Toggle key-position stereo spatialization
+    Spatial {
+        /// `on` or `off`
+        state: OnOff,
+    },
+
+    /// Toggle release (key-up) sounds
+    Release {
+        /// `on` or `off`
+        state: OnOff,
+    },
+
+    /// Switch the active pack by name or path
+    Pack {
+        /// Pack name from `pack list`, or a path to a .kvpack
+        selector: String,
+    },
+
+    /// Play a few keys through the running engine
+    Preview {
+        /// Pack to preview (default: the active pack)
+        #[arg(long)]
+        pack: Option<String>,
+        /// Key names, e.g. `--keys A S D F` (default: a short demo run)
+        #[arg(long, num_args = 1..)]
+        keys: Option<Vec<String>>,
+    },
+
+    /// Follow engine state changes until interrupted (Ctrl+C)
+    Watch,
+
+    /// Ask the engine to exit cleanly
+    Shutdown,
+}
+
+/// `on` / `off` flag value for boolean toggles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnOff {
+    /// Turn the feature on.
+    On,
+    /// Turn the feature off.
+    Off,
+}
+
+impl std::str::FromStr for OnOff {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "on" | "1" | "true" | "yes" => Ok(OnOff::On),
+            "off" | "0" | "false" | "no" => Ok(OnOff::Off),
+            other => Err(format!(
+                "expected `on` or `off`, found {other:?} (try `keyvibes ctl spatial on`)"
+            )),
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]

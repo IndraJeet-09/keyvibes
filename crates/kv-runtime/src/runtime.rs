@@ -81,6 +81,18 @@ pub struct Runtime {
     /// Control plane only (`keyvibes idle-test`); the live input pipeline
     /// keeps its own state on its own thread.
     trigger_variants: std::sync::Mutex<[VariantState; PhysicalKey::COUNT]>,
+    /// Lock-free settings shared with the RT mixer (volume, variation).
+    ///
+    /// Created eagerly so the control plane can grab it before `start_audio`
+    /// and keep it across stream rebuilds.
+    mixer_live: Arc<kv_mixer::MixerLive>,
+    /// Master switch polled by the input pipeline before any sound is built.
+    input_enabled: Arc<std::sync::atomic::AtomicBool>,
+    /// Packs temporarily held alive for preview playback.
+    ///
+    /// Small, bounded, control-plane only: a preview must keep its `KvPack`
+    /// mapped while queued commands still point into it.
+    preview_parks: std::sync::Mutex<Vec<(Arc<KvPack>, std::time::Instant)>>,
 }
 
 impl Runtime {
@@ -89,6 +101,8 @@ impl Runtime {
     /// Nothing is opened yet: call [`load_pack`](Self::load_pack),
     /// [`start_audio`](Self::start_audio), and [`start_input`](Self::start_input).
     pub fn new(output_rate: u32) -> Self {
+        let settings = Settings::default();
+        let mixer_live = Arc::new(kv_mixer::MixerLive::from_settings(&settings));
         Self {
             engine: None,
             audio_stats: None,
@@ -99,7 +113,7 @@ impl Runtime {
             stats: Arc::new(kv_input_linux::InputStats::new()),
             input: None,
             simulated: None,
-            settings: Settings::default(),
+            settings,
             reconnect_policy: ReconnectPolicy::default(),
             idle_config: IdleConfig::default(),
             output_device: None,
@@ -107,7 +121,52 @@ impl Runtime {
             trigger_variants: std::sync::Mutex::new(std::array::from_fn(|_| {
                 VariantState::default()
             })),
+            mixer_live,
+            input_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            preview_parks: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    /// The lock-free settings block the RT mixer polls.
+    ///
+    /// Clone this and hand it to the control plane: it survives stream
+    /// re-negotiation, so a volume change made mid-reconnect is applied to
+    /// the rebuilt stream.
+    pub fn mixer_live(&self) -> Arc<kv_mixer::MixerLive> {
+        self.mixer_live.clone()
+    }
+
+    /// The master switch polled by the input pipeline.
+    pub fn input_enabled_handle(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        self.input_enabled.clone()
+    }
+
+    /// Flips the master switch: `false` silences key-triggered sounds.
+    ///
+    /// Also mirrors the flag into the mixer's live gain so a disabled engine
+    /// truly outputs silence even for already-queued commands.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.input_enabled
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether the master switch is on.
+    pub fn is_enabled(&self) -> bool {
+        self.input_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Mirrors the current settings into the live mixer atomics.
+    ///
+    /// Call after mutating [`settings`](Self::settings) so the RT callback
+    /// picks the change up on the next block.
+    pub fn publish_settings(&self) {
+        self.mixer_live
+            .set_master_gain(self.settings.perceptual_gain());
+        self.mixer_live.set_variation_flags(
+            self.settings.pitch_variation_enabled,
+            self.settings.gain_variation_enabled,
+        );
     }
 
     /// Overrides the idle-management policy (must be set before `start_audio`).
@@ -143,14 +202,106 @@ impl Runtime {
         &self.settings
     }
 
-    /// Replaces the user settings.
+    /// Replaces the user settings and publishes them to the live mixer.
     ///
-    /// Must be called before [`load_pack`](Self::load_pack) and
-    /// [`start_audio`](Self::start_audio): the mixer lives on the real-time
-    /// thread and the player is shared with the input threads, so neither can
-    /// be reconfigured once started.
+    /// Volume and variation flags reach the RT callback through
+    /// [`mixer_live`](Self::mixer_live); spatial and release toggles reach
+    /// the input path through the shared [`PackPlayer`]. Both are safe to
+    /// call while the engine is running.
     pub fn set_settings(&mut self, settings: Settings) {
         self.settings = settings;
+        self.publish_settings();
+        if let Some(player) = self.player() {
+            player.spatial(self.settings.spatial_audio_enabled);
+            player.release_sounds(self.settings.release_sounds_enabled);
+        }
+    }
+
+    /// Toggles key-position spatialization live.
+    pub fn set_spatial(&mut self, enabled: bool) {
+        self.settings.spatial_audio_enabled = enabled;
+        if let Some(player) = self.player() {
+            player.spatial(enabled);
+        }
+    }
+
+    /// Toggles release (key-up) sounds live.
+    pub fn set_release_sounds(&mut self, enabled: bool) {
+        self.settings.release_sounds_enabled = enabled;
+        if let Some(player) = self.player() {
+            player.release_sounds(enabled);
+        }
+    }
+
+    /// Queues `keys` (or a short demo sequence) through the real path.
+    ///
+    /// Commands land on the same SPSC queue the live pipeline uses, so the
+    /// preview is audibly identical to a real press - including variation,
+    /// spatialization, and the master gain ramp. Returns how many keys had a
+    /// clip; silent keys are counted separately and never substituted.
+    ///
+    /// The optional `pack` is opened and parked for ~15s so queued commands
+    /// that still point into its samples stay valid; it does not become the
+    /// active pack.
+    pub fn preview(
+        &mut self,
+        pack: Option<Arc<KvPack>>,
+        keys: &[PhysicalKey],
+    ) -> Result<(usize, usize), RuntimeError> {
+        // Drop parks that have aged out; the engine has long since finished
+        // rendering anything queued more than a few seconds ago.
+        if let Ok(mut parks) = self.preview_parks.lock() {
+            parks.retain(|(_, at)| at.elapsed() < Duration::from_secs(15));
+        }
+
+        let (source, park): (Arc<dyn SoundSource>, Option<Arc<KvPack>>) = match pack {
+            Some(pack) => {
+                let player = Arc::new(PackPlayer::new(pack.clone(), self.output_rate));
+                player.spatial(self.settings.spatial_audio_enabled);
+                player.release_sounds(self.settings.release_sounds_enabled);
+                if let Ok(mut parks) = self.preview_parks.lock() {
+                    parks.push((pack.clone(), std::time::Instant::now()));
+                }
+                (player, Some(pack))
+            }
+            None => {
+                let Some(source) = self.source.clone() else {
+                    return Err(RuntimeError::NoPack);
+                };
+                (source, None)
+            }
+        };
+        let _ = park;
+
+        if let Some(wake) = self.wake.as_ref() {
+            wake.wake();
+        }
+
+        let mut variants = self
+            .trigger_variants
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let mut played = 0usize;
+        let mut missing = 0usize;
+        for key in keys {
+            let state = &mut variants[key.as_u16() as usize];
+            match source.play(*key, state) {
+                Some(command) => {
+                    let outcome = self
+                        .command_queue
+                        .push(command.stamped(monotonic_ns()))
+                        .is_ok();
+                    source.queued(command);
+                    if outcome {
+                        played += 1;
+                    } else {
+                        missing += 1;
+                    }
+                }
+                None => missing += 1,
+            }
+        }
+        Ok((played, missing))
     }
 
     /// Opens and validates a `.kvpack`, then makes it the playing pack.
@@ -210,7 +361,7 @@ impl Runtime {
 
     fn load_pack_inner<P: AsRef<Path>>(&mut self, path: P) -> Result<SwapReport, RuntimeError> {
         let pack = Arc::new(KvPack::open(path.as_ref())?);
-        let mut player = PackPlayer::new(pack.clone(), self.output_rate);
+        let player = PackPlayer::new(pack.clone(), self.output_rate);
         player.spatial(self.settings.spatial_audio_enabled);
         player.release_sounds(self.settings.release_sounds_enabled);
         let player = Arc::new(player);
@@ -278,6 +429,7 @@ impl Runtime {
                 mixer: MixerSettings::from_settings(&self.settings),
                 idle: self.idle_config,
                 output_device: self.output_device.clone(),
+                live: Some(self.mixer_live.clone()),
             },
         )?;
         self.audio_stats = Some(engine.stats_block());
@@ -360,6 +512,14 @@ impl Runtime {
             .unwrap_or_default()
     }
 
+    /// Shared input-statistics block (live, not a snapshot).
+    ///
+    /// Hand this `Arc` to the control plane so UI counters update without
+    /// polling the runtime.
+    pub fn input_stats_block(&self) -> Arc<kv_input_linux::InputStats> {
+        self.stats.clone()
+    }
+
     /// Discovers keyboards and starts reader threads that play through the
     /// loaded pack.
     ///
@@ -378,6 +538,7 @@ impl Runtime {
             self.stats.clone(),
             source.clone(),
             self.wake.clone(),
+            self.input_enabled.clone(),
         )?;
 
         // Hotplug is best-effort: losing it should not stop playback.

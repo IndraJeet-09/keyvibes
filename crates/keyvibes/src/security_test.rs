@@ -47,6 +47,11 @@ const WRITE_ALLOWLIST: &[&str] = &[
     "crates/keyvibes/src/config.rs",
     // Builds a `.kvpack` from a manifest the user named on the command line.
     "crates/kv-pack/src/writer.rs",
+    // Control-plane frames: newline-delimited JSON responses written to a
+    // same-uid unix socket, never to a file, and never containing a key
+    // identity (the key-printing check below covers the second claim).
+    "crates/keyvibes/src/control.rs",
+    "crates/kv-control/src/socket.rs",
     // Acceptance commands write scratch files they delete again.
     "crates/keyvibes/src/config_test.rs",
     "crates/keyvibes/src/compat_test.rs",

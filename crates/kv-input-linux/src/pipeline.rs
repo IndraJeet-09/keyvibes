@@ -147,6 +147,11 @@ pub struct DeviceRegistry<S: ?Sized> {
     queue: Arc<SpscRing<PlayCommand>>,
     stats: Arc<InputStats>,
     wake: Option<Arc<dyn StreamWake>>,
+    /// Master switch polled before any play command is built.
+    ///
+    /// Held-key bookkeeping still runs while disabled so a key released after
+    /// re-enabling is not treated as a spurious press.
+    enabled: Arc<AtomicBool>,
 }
 
 impl<S> DeviceRegistry<S>
@@ -162,7 +167,14 @@ where
             queue,
             stats,
             wake: None,
+            enabled: Arc::new(AtomicBool::new(true)),
         }
+    }
+
+    /// Shares an existing master-switch flag (control plane).
+    pub fn with_enabled(mut self, enabled: Arc<AtomicBool>) -> Self {
+        self.enabled = enabled;
+        self
     }
 
     /// Installs the hook that resumes a paused output stream on a key press.
@@ -270,6 +282,7 @@ where
             queue,
             stats,
             wake,
+            enabled,
         } = self;
 
         let Some(state) = entries.get_mut(path) else {
@@ -282,6 +295,15 @@ where
                     *held_total += 1;
                 }
                 stats.increment_press();
+
+                // Master switch off: keep held-state bookkeeping so the
+                // release after re-enabling is matched correctly, but never
+                // build or queue a sound.
+                if !enabled.load(Ordering::Relaxed) {
+                    stats.set_keys_held(*held_total as u64);
+                    return;
+                }
+
                 let started_ns = kv_core::monotonic_ns();
 
                 let variant = state.variant_mut(physical_key);
@@ -315,6 +337,11 @@ where
                     *held_total = held_total.saturating_sub(1);
                 }
                 stats.increment_release();
+
+                if !enabled.load(Ordering::Relaxed) {
+                    stats.set_keys_held(*held_total as u64);
+                    return;
+                }
 
                 // Release sounds are optional: a pack without them (or with
                 // the setting off) makes `play_release` return None, and the
@@ -422,12 +449,15 @@ impl InputPipeline {
         keyboards: Vec<KeyboardInfo>,
         decisions: Arc<Mutex<HashSet<PathBuf>>>,
         wake: Option<Arc<dyn StreamWake>>,
+        enabled: Arc<AtomicBool>,
     ) -> Result<Self, crate::error::InputError>
     where
         S: SoundSource + Send + Sync + 'static,
     {
         let mut devices = HashMap::new();
-        let mut registry = DeviceRegistry::new(source, queue, stats.clone()).with_wake(wake);
+        let mut registry = DeviceRegistry::new(source, queue, stats.clone())
+            .with_wake(wake)
+            .with_enabled(enabled);
 
         {
             let mut decided = decisions.lock().expect("decisions lock poisoned");

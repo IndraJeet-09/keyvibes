@@ -512,7 +512,7 @@ pub fn run() -> Result<()> {
                 if player.play_release(key, &mut state).is_some() {
                     problems.push("PackPlayer emitted a release sound while disabled".to_string());
                 }
-                let mut player = PackPlayer::new(Arc::clone(pack), 48_000);
+                let player = PackPlayer::new(Arc::clone(pack), 48_000);
                 player.release_sounds(true);
                 let mut state = VariantState::default();
                 match player.play_release(key, &mut state) {

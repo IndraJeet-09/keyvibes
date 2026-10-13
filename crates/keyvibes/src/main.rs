@@ -10,6 +10,7 @@ use kv_pack::KvPack;
 use kv_ring::SpscRing;
 use kv_runtime::{InputStart, Runtime};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,6 +25,7 @@ mod cli_test;
 mod compat_test;
 mod config;
 mod config_test;
+mod control;
 mod doctor;
 mod doctor_test;
 mod hotplug_test;
@@ -37,7 +39,7 @@ mod soak_test;
 mod soundpack_acceptance_test;
 mod stress;
 
-use cli::{Cli, Command, ConfigAction, PackAction};
+use cli::{Cli, Command, ConfigAction, CtlAction, OnOff, PackAction};
 use config::Config;
 
 /// Every heap allocation this process makes is counted, so the benchmark
@@ -172,6 +174,7 @@ fn main() -> Result<()> {
             ConfigAction::Init { force } => config_init(force),
         },
         Some(Command::CliTest) => cli_test::run(),
+        Some(Command::Ctl { action, socket }) => run_ctl(action, socket, cli.verbose),
         Some(Command::AcceptanceTest) => {
             let (_path, config) = load_config()?;
             acceptance_test::run(acceptance_test::AcceptanceOptions {
@@ -408,6 +411,98 @@ fn inspect_pack(path: &Path, show_clips: bool) -> Result<()> {
     Ok(())
 }
 
+/// `keyvibes ctl <action>`: one request to the engine over its local socket.
+fn run_ctl(action: CtlAction, socket: Option<PathBuf>, verbose: bool) -> Result<()> {
+    use kv_control::Request;
+
+    let (request, watch) = match &action {
+        CtlAction::Ping => (Request::Ping, false),
+        CtlAction::Status => (Request::GetState, false),
+        CtlAction::On => (Request::SetEnabled { enabled: true }, false),
+        CtlAction::Off => (Request::SetEnabled { enabled: false }, false),
+        CtlAction::Volume { value } => (Request::SetVolume { volume: *value }, false),
+        CtlAction::Variation {
+            pitch,
+            no_pitch,
+            gain,
+            no_gain,
+        } => (
+            Request::SetVariation {
+                pitch: if *pitch {
+                    Some(true)
+                } else if *no_pitch {
+                    Some(false)
+                } else {
+                    None
+                },
+                gain: if *gain {
+                    Some(true)
+                } else if *no_gain {
+                    Some(false)
+                } else {
+                    None
+                },
+            },
+            false,
+        ),
+        CtlAction::Spatial { state } => (
+            Request::SetSpatial {
+                enabled: matches!(state, OnOff::On),
+            },
+            false,
+        ),
+        CtlAction::Release { state } => (
+            Request::SetReleaseSounds {
+                enabled: matches!(state, OnOff::On),
+            },
+            false,
+        ),
+        CtlAction::Pack { selector } => (
+            Request::SetPack {
+                selector: selector.clone(),
+            },
+            false,
+        ),
+        CtlAction::Preview { pack, keys } => (
+            Request::Preview {
+                pack: pack.clone(),
+                keys: keys.clone(),
+            },
+            false,
+        ),
+        CtlAction::Watch => (Request::Subscribe, true),
+        CtlAction::Shutdown => (Request::Shutdown, false),
+    };
+
+    if watch {
+        control::ctl_watch(socket)?;
+        return Ok(());
+    }
+
+    let response = control::ctl_once(request, socket)?;
+    if !response.ok {
+        anyhow::bail!(
+            "engine rejected the request: {}",
+            response
+                .error
+                .unwrap_or_else(|| "unknown error".to_string())
+        );
+    }
+    if verbose {
+        if let Some(state) = &response.state {
+            println!("{}", serde_json::to_string_pretty(state)?);
+        }
+    } else {
+        // Compact single-line JSON: parseable, and short enough for a prompt.
+        if let Some(state) = &response.state {
+            println!("{}", serde_json::to_string(state)?);
+        } else {
+            println!("{{\"ok\":true}}");
+        }
+    }
+    Ok(())
+}
+
 /// `keyvibes run [--pack <name-or-path>] [--rate <hz>] [--simulate] [--duration <s>]`
 fn run_engine(
     selector: Option<&str>,
@@ -510,11 +605,58 @@ fn run_engine(
         println!("  input devices: {devices}");
     }
 
+    // Control plane: a per-user unix socket the desktop UI, `keyvibes ctl`,
+    // and the acceptance tests talk to. A second engine refuses to bind -
+    // duplicate instances are an error, not two sockets fighting over one
+    // keyboard.
+    let (jobs_tx, jobs_rx) = std::sync::mpsc::channel::<control::EngineJob>();
+    let shutdown = Arc::new(AtomicBool::new(false));
+    install_termination_handlers(&shutdown);
+    let shared = Arc::new(control::ControlShared::new(
+        &runtime,
+        config.clone(),
+        simulate,
+        jobs_tx,
+        shutdown.clone(),
+    ));
+    let server_handle =
+        match control::spawn(shared.clone(), None).context("failed to start the control server")? {
+            Some(handle) => Some(handle),
+            None => anyhow::bail!(
+                "another KeyVibes engine is already running (its control socket is busy)\n\
+             \x20 stop it first, or run `keyvibes ctl shutdown` to ask it to exit"
+            ),
+        };
+    println!(
+        "Control socket: {}",
+        kv_control::default_socket_path().display()
+    );
+    println!("  drive it with `keyvibes ctl <on|off|volume|pack|...>` or the KeyVibes UI");
+
     if duration > 0 {
         println!("Playing for {duration}s - press keys to trigger sounds.");
-        runtime
-            .run_for(Duration::from_secs(duration))
-            .context("audio loop terminated")?;
+        // A watchdog sets the shared flag; the main loop notices within 250ms.
+        let timer_shutdown = shutdown.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(duration));
+            timer_shutdown.store(true, Ordering::Relaxed);
+        });
+    } else {
+        println!("Playing - press keys to trigger sounds, Ctrl+C to stop.");
+    }
+
+    control::run_main_loop(&mut runtime, &shared, &jobs_rx, &config_path, verbose)
+        .context("control loop terminated")?;
+
+    // The control server polls `shutdown` every 50ms; flag it and join so
+    // its Drop removes the socket before this process exits. Without the
+    // join, the file would linger until the next start treated it as stale.
+    shutdown.store(true, Ordering::Relaxed);
+    if let Some(handle) = server_handle {
+        let _ = handle.join();
+    }
+
+    if duration > 0 {
         let input = runtime.input_stats();
         let audio = runtime.audio_stats();
         println!(
@@ -534,10 +676,32 @@ fn run_engine(
         if audio.peak <= 0.0 {
             anyhow::bail!("audio rendered only silence");
         }
-        Ok(())
-    } else {
-        println!("Playing - press keys to trigger sounds, Ctrl+C to stop.");
-        runtime.run().context("audio loop terminated")
+    }
+    Ok(())
+}
+
+/// Turns SIGINT/SIGTERM into a flag the control loop polls.
+///
+/// The default disposition would kill the process without dropping the
+/// control server, leaving its socket file behind for the next start to
+/// clean up as "stale" - correct, but the engine would also skip its clean
+/// audio shutdown. One process-wide handler, no allocation, no I/O.
+fn install_termination_handlers(flag: &Arc<AtomicBool>) {
+    static FLAG_PTR: AtomicPtr<AtomicBool> = AtomicPtr::new(std::ptr::null_mut());
+    FLAG_PTR.store(Arc::as_ptr(flag) as *mut AtomicBool, Ordering::Release);
+
+    extern "C" fn handle(_sig: libc::c_int) {
+        let ptr = FLAG_PTR.load(Ordering::Acquire);
+        if !ptr.is_null() {
+            // SAFETY: the pointer is set once before any handler can run and
+            // never cleared; the Arc behind it outlives the process.
+            unsafe { (*ptr).store(true, Ordering::SeqCst) };
+        }
+    }
+
+    unsafe {
+        libc::signal(libc::SIGINT, handle as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, handle as *const () as libc::sighandler_t);
     }
 }
 
@@ -827,8 +991,14 @@ fn input_test(seconds: u64, verbose: bool) -> Result<()> {
     let queue: Arc<SpscRing<PlayCommand>> = Arc::new(SpscRing::with_capacity(256));
     let probe = Arc::new(EventProbe { verbose });
 
-    let backend = LinuxInputBackend::new(queue, stats.clone(), probe, None)
-        .context("failed to start capture")?;
+    let backend = LinuxInputBackend::new(
+        queue,
+        stats.clone(),
+        probe,
+        None,
+        Arc::new(std::sync::atomic::AtomicBool::new(true)),
+    )
+    .context("failed to start capture")?;
 
     println!(
         "Capturing for {seconds}s - press keys now{}",

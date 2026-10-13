@@ -6,19 +6,20 @@
 
 use kv_core::{KeyGeometry, PhysicalKey, PlayCommand, SoundSource, VariantState};
 use kv_pack::KvPack;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// Plays sounds from a loaded KVPack.
 ///
-/// Construction performs no real-time work; [`SoundSource::play`] is a binary
-/// search over validated pack data with no allocation, locking, or I/O.
+/// Construction performs no real-time work; [`SoundSource::play`] is a
+/// binary search over validated pack data with no allocation, locking, or I/O.
 pub struct PackPlayer {
     pack: Arc<KvPack>,
     output_rate: u32,
     left_gain: f32,
     right_gain: f32,
-    spatial: bool,
-    release_enabled: bool,
+    spatial: AtomicBool,
+    release_enabled: AtomicBool,
 }
 
 impl PackPlayer {
@@ -32,8 +33,8 @@ impl PackPlayer {
             output_rate,
             left_gain: 1.0,
             right_gain: 1.0,
-            spatial: true,
-            release_enabled: false,
+            spatial: AtomicBool::new(true),
+            release_enabled: AtomicBool::new(false),
         }
     }
 
@@ -49,8 +50,8 @@ impl PackPlayer {
             output_rate,
             left_gain,
             right_gain,
-            spatial: true,
-            release_enabled: false,
+            spatial: AtomicBool::new(true),
+            release_enabled: AtomicBool::new(false),
         }
     }
 
@@ -59,8 +60,11 @@ impl PackPlayer {
     /// When enabled, each key's horizontal position on the ANSI layout is
     /// converted to an equal-power pan before the command is queued, so sounds
     /// sit roughly where the fingers are.
-    pub fn spatial(&mut self, enabled: bool) -> &mut Self {
-        self.spatial = enabled;
+    ///
+    /// Atomic: the control plane may flip this while input threads are
+    /// reading it; each trigger simply observes the latest value.
+    pub fn spatial(&self, enabled: bool) -> &Self {
+        self.spatial.store(enabled, Ordering::Relaxed);
         self
     }
 
@@ -69,20 +73,20 @@ impl PackPlayer {
     ///
     /// This is the runtime switch behind the `release_sounds` config flag.
     /// When disabled the pack's release table is simply never consulted.
-    pub fn release_sounds(&mut self, enabled: bool) -> &mut Self {
-        self.release_enabled = enabled;
+    pub fn release_sounds(&self, enabled: bool) -> &Self {
+        self.release_enabled.store(enabled, Ordering::Relaxed);
         self
     }
 
     /// Whether key-position spatialization is applied.
     pub fn is_spatial(&self) -> bool {
-        self.spatial
+        self.spatial.load(Ordering::Relaxed)
     }
 
     /// Whether release sounds are played (the setting, not the pack's
     /// contents: see [`KvPack::has_release_sounds`](kv_pack::KvPack::has_release_sounds)).
     pub fn release_sounds_enabled(&self) -> bool {
-        self.release_enabled
+        self.release_enabled.load(Ordering::Relaxed)
     }
 
     /// The pack this player reads samples from.
@@ -107,7 +111,7 @@ impl SoundSource for PackPlayer {
             self.right_gain,
         )?;
 
-        if self.spatial {
+        if self.spatial.load(Ordering::Relaxed) {
             let pan = KeyGeometry::default_position(key).calculate_pan();
             let (left, right) = KeyGeometry::pan_to_gains(pan);
             command.left_gain *= left;
@@ -119,7 +123,7 @@ impl SoundSource for PackPlayer {
 
     #[inline]
     fn play_release(&self, key: PhysicalKey, state: &mut VariantState) -> Option<PlayCommand> {
-        if !self.release_enabled {
+        if !self.release_enabled.load(Ordering::Relaxed) {
             return None;
         }
 
@@ -131,7 +135,7 @@ impl SoundSource for PackPlayer {
             self.right_gain,
         )?;
 
-        if self.spatial {
+        if self.spatial.load(Ordering::Relaxed) {
             let pan = KeyGeometry::default_position(key).calculate_pan();
             let (left, right) = KeyGeometry::pan_to_gains(pan);
             command.left_gain *= left;
@@ -255,7 +259,7 @@ mod tests {
 
     #[test]
     fn spatial_disabled_keeps_both_channels_equal() {
-        let mut player = PackPlayer::new(build_test_pack(), 48000);
+        let player = PackPlayer::new(build_test_pack(), 48000);
         player.spatial(false);
         let mut state = VariantState::default();
 

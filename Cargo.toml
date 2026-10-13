@@ -8,6 +8,7 @@ members = [
     "crates/kv-input-linux",
     "crates/kv-audio-pipewire",
     "crates/kv-runtime",
+    "crates/kv-control",
     "crates/keyvibes",
     "xtask",
 ]
@@ -29,6 +30,7 @@ kv-pack = { path = "crates/kv-pack" }
 kv-input-linux = { path = "crates/kv-input-linux" }
 kv-audio-pipewire = { path = "crates/kv-audio-pipewire" }
 kv-runtime = { path = "crates/kv-runtime" }
+kv-control = { path = "crates/kv-control" }
 
 # External dependencies
 evdev = "0.13"

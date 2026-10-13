@@ -356,7 +356,7 @@ mod tests {
         let pack = Arc::new(kv_pack::KvPack::open(&path).unwrap());
         let _ = std::fs::remove_file(&path);
 
-        let mut player = PackPlayer::new(pack, 48000);
+        let player = PackPlayer::new(pack, 48000);
         player.spatial(Settings::default().spatial_audio_enabled);
         Arc::new(player)
     }

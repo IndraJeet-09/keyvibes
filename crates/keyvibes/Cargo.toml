@@ -12,13 +12,14 @@ name = "keyvibes"
 path = "src/main.rs"
 
 [dependencies]
-kv-core.workspace = true
+kv-core = { workspace = true, features = ["serde"] }
 kv-ring.workspace = true
 kv-mixer.workspace = true
 kv-runtime.workspace = true
 kv-pack.workspace = true
 kv-input-linux.workspace = true
 kv-audio-pipewire.workspace = true
+kv-control.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 evdev.workspace = true

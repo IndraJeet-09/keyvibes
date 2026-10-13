@@ -266,14 +266,18 @@ pub fn run() -> Result<()> {
     }
 
     // --- 6. dynamic: sound comes out on a sessionless machine --------------
-    let full_args = [
-        "--pack",
-        "Holy Panda",
-        "run",
-        "--simulate",
-        "--duration",
-        "2",
-    ];
+    // Pick whatever pack is actually installed: this check is about the
+    // environment, not about a particular pack, and hardcoded names rot
+    // whenever the installed set changes.
+    let installed = crate::pack_locate::available_names();
+    let Some(pack_name) = installed.first().map(String::as_str) else {
+        report.not_run(
+            "sound plays with every session variable unset",
+            "no sound pack is installed",
+        );
+        return report.finish();
+    };
+    let full_args = ["--pack", pack_name, "run", "--simulate", "--duration", "2"];
     if !pipewire_ok {
         report.not_run(
             "sound plays with every session variable unset",

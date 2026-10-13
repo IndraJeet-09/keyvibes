@@ -437,7 +437,12 @@ impl Connection {
         stats: Arc<RtStats>,
         settings: MixerSettings,
     ) -> Result<Self, AudioError> {
-        Self::build_targeted(output_rate, command_queue, stats, settings, None)
+        let live = Arc::new(kv_mixer::MixerLive::from_parts(
+            settings.master_gain,
+            settings.variation.pitch.cents,
+            settings.variation.gain.db,
+        ));
+        Self::build_targeted(output_rate, command_queue, stats, settings, None, live)
     }
 
     /// Builds and connects a PipeWire output stream routed to `target`.
@@ -445,12 +450,17 @@ impl Connection {
     /// `target` is a PipeWire node name or object serial (the `target.object`
     /// property). `None` leaves routing to the session manager, which is what
     /// "default sink" means in PipeWire. Runs entirely on a control thread.
+    ///
+    /// `live` is the lock-free settings block the control plane writes; the
+    /// RT callback polls it for volume and variation changes. Pass the same
+    /// `Arc` across reconnects so a UI slider survives a stream rebuild.
     pub fn build_targeted(
         output_rate: u32,
         command_queue: Arc<SpscRing<PlayCommand>>,
         stats: Arc<RtStats>,
         settings: MixerSettings,
         target: Option<&str>,
+        live: Arc<kv_mixer::MixerLive>,
     ) -> Result<Self, AudioError> {
         init_pipewire();
 
@@ -504,7 +514,12 @@ impl Connection {
             .map_err(|e| AudioError::InitFailed(format!("failed to create stream: {e:?}")))?;
 
         let rt_state = RtState {
-            mixer: Mixer::with_settings(output_rate, settings),
+            mixer: Mixer::with_live(
+                output_rate,
+                settings,
+                kv_mixer::DEFAULT_VARIATION_SEED,
+                live,
+            ),
             queue: command_queue,
             stats: stats.clone(),
             output_rate,
@@ -894,6 +909,11 @@ impl PipeWireStream {
         target: Option<&str>,
     ) -> Result<Self, AudioError> {
         let stats = Arc::new(RtStats::new(output_rate));
+        let live = Arc::new(kv_mixer::MixerLive::from_parts(
+            settings.master_gain,
+            settings.variation.pitch.cents,
+            settings.variation.gain.db,
+        ));
         Ok(Self {
             connection: Connection::build_targeted(
                 output_rate,
@@ -901,6 +921,7 @@ impl PipeWireStream {
                 stats,
                 settings,
                 target,
+                live,
             )?,
         })
     }

@@ -23,7 +23,8 @@ pub const MAX_VOICES: usize = 32;
 ///
 /// Fixed so renders are reproducible; tests swap it when they want a
 /// different sequence.
-const DEFAULT_VARIATION_SEED: u32 = 0x4B56_5642;
+/// Default variation seed used when none is specified.
+pub const DEFAULT_VARIATION_SEED: u32 = 0x4B56_5642;
 
 /// Everything the mixer takes from user settings.
 ///
@@ -87,6 +88,12 @@ pub struct Mixer {
 
     /// Rotator and generator advanced once per triggered voice.
     variation: VariationState,
+
+    /// Lock-free settings shared with the control plane (volume, variation).
+    ///
+    /// Polled once per `render_block` and once per `trigger` - never per
+    /// sample - so a UI volume slider costs two relaxed loads per quantum.
+    live: std::sync::Arc<crate::live::MixerLive>,
 }
 
 impl Mixer {
@@ -113,6 +120,47 @@ impl Mixer {
             peak: 0.0,
             variation_config: settings.variation,
             variation: VariationState::new(seed),
+            live: std::sync::Arc::new(crate::live::MixerLive::from_parts(
+                gain,
+                settings.variation.pitch.cents,
+                settings.variation.gain.db,
+            )),
+        }
+    }
+
+    /// Creates a mixer sharing pre-existing live settings.
+    ///
+    /// The control plane keeps its own `Arc<MixerLive>` so volume and
+    /// variation changes reach the RT callback even across stream
+    /// re-negotiations (each rebuild constructs a fresh `Mixer`).
+    pub fn with_live(
+        output_rate: u32,
+        settings: MixerSettings,
+        seed: u32,
+        live: std::sync::Arc<crate::live::MixerLive>,
+    ) -> Self {
+        let mut mixer = Self::with_seed(output_rate, settings, seed);
+        mixer.live = live;
+        mixer
+    }
+
+    /// The shared live settings this mixer polls.
+    pub fn live(&self) -> &std::sync::Arc<crate::live::MixerLive> {
+        &self.live
+    }
+
+    /// Applies live setting changes to the ramp target and variation config.
+    ///
+    /// Called from the RT thread at the top of each `render_block` and once
+    /// per `trigger`; two relaxed atomic loads, no locks.
+    fn sync_live(&mut self) {
+        let live_gain = self.live.master_gain();
+        if (live_gain - self.target_gain).abs() > f32::EPSILON {
+            self.set_master_gain(live_gain);
+        }
+        let live_variation = self.live.variation_config();
+        if live_variation != self.variation_config {
+            self.variation_config = live_variation;
         }
     }
 
@@ -184,6 +232,7 @@ impl Mixer {
     ///
     /// This is called from the audio callback after dequeuing commands.
     pub fn trigger(&mut self, cmd: PlayCommand) {
+        self.sync_live();
         self.generation = self.generation.wrapping_add(1);
 
         let idx = self.allocate_voice();
@@ -243,6 +292,8 @@ impl Mixer {
         );
 
         let frame_count = output.len() / 2;
+
+        self.sync_live();
 
         // Idle fast path: nothing to mix, so nothing to interpolate or limit.
         if self.active_voice_count() == 0 {

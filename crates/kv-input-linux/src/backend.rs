@@ -34,6 +34,7 @@ pub struct LinuxInputBackend {
     monitor_stop: Arc<AtomicBool>,
     monitor_handle: Option<thread::JoinHandle<()>>,
     stats: Arc<InputStats>,
+    enabled: Arc<AtomicBool>,
 }
 
 impl LinuxInputBackend {
@@ -47,6 +48,8 @@ impl LinuxInputBackend {
     /// * `source` - shared sound source used to build commands
     /// * `wake` - optional hook that resumes a paused output stream just
     ///   before a command is queued (idle power management)
+    /// * `enabled` - master switch polled before any sound is built; when
+    ///   false the pipeline keeps held-key bookkeeping but queues nothing
     ///
     /// Zero readable keyboards is a valid state: the backend still comes up
     /// so the hotplug monitor can attach a keyboard when one appears.
@@ -60,6 +63,7 @@ impl LinuxInputBackend {
         stats: Arc<InputStats>,
         source: Arc<S>,
         wake: Option<Arc<dyn StreamWake>>,
+        enabled: Arc<AtomicBool>,
     ) -> Result<Self, InputError>
     where
         S: SoundSource + Send + Sync + 'static,
@@ -75,6 +79,7 @@ impl LinuxInputBackend {
             keyboards,
             decisions.clone(),
             wake,
+            enabled.clone(),
         )?;
 
         Ok(Self {
@@ -83,7 +88,21 @@ impl LinuxInputBackend {
             monitor_stop: Arc::new(AtomicBool::new(false)),
             monitor_handle: None,
             stats,
+            enabled,
         })
+    }
+
+    /// Flips the master switch; `false` silences all key-triggered sounds.
+    ///
+    /// Cheap (one relaxed store). Held-key tracking continues while disabled
+    /// so releases after re-enabling are matched correctly.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Current master-switch state.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
     }
 
     /// Starts watching for keyboards appearing and disappearing.
@@ -155,7 +174,7 @@ mod tests {
 
         // Enumeration failure is the only error; an empty system is fine
         // because the hotplug monitor will attach keyboards later.
-        match LinuxInputBackend::new(queue, stats, source, None) {
+        match LinuxInputBackend::new(queue, stats, source, None, Arc::new(AtomicBool::new(true))) {
             Ok(backend) => {
                 println!("keyboards visible: {}", backend.device_count());
                 // Dropping must tear the threads down without hanging.

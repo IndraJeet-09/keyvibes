@@ -26,6 +26,7 @@ mod compat_test;
 mod config;
 mod config_test;
 mod control;
+mod diagnose;
 mod doctor;
 mod doctor_test;
 mod hotplug_test;
@@ -616,6 +617,7 @@ fn run_engine(
         &runtime,
         config.clone(),
         simulate,
+        config_path.clone(),
         jobs_tx,
         shutdown.clone(),
     ));

@@ -61,6 +61,13 @@ pub enum Request {
         /// plays a short built-in demo sequence.
         keys: Option<Vec<String>>,
     },
+    /// Run the read-only environment checks (input access, PipeWire,
+    /// packs, config) and return them alongside the state snapshot.
+    ///
+    /// Every check is side-effect free: it never opens the engine's audio
+    /// stream, never grabs a device and never writes a file, so a UI can
+    /// call it as often as it likes while the engine is playing.
+    Diagnostics,
     /// Ask the engine to exit its main loop.
     Shutdown,
 }
@@ -78,6 +85,10 @@ pub struct Response {
     /// Fresh state snapshot on success.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<State>,
+    /// Environment checks, only present on a successful
+    /// [`Request::Diagnostics`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<DiagnosticsReport>,
 }
 
 /// A request wrapped with the client's correlation id.
@@ -190,6 +201,22 @@ pub struct PackInfo {
     pub coverage: u32,
     /// Whether this pack has any release clips.
     pub has_release: bool,
+    /// Pack author, when the manifest declares one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Licence of the pack's audio, as written in the manifest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    /// Where the audio came from (upstream project, synthesizer recipe, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// One-line description from the manifest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// `true` for the packs KeyVibes synthesizes itself, so a UI can label
+    /// them honestly and never present them as field recordings.
+    #[serde(default)]
+    pub synthesized: bool,
 }
 
 /// Audio output status.
@@ -226,6 +253,10 @@ pub struct InputInfo {
     pub missing_sounds: u64,
     /// Play commands queued since start.
     pub commands_generated: u64,
+    /// Whether the hot-plug monitor is running, so a keyboard plugged in
+    /// later is picked up without restarting the engine.
+    #[serde(default)]
+    pub hotplug: bool,
 }
 
 /// Result of a successful [`Request::Preview`].
@@ -319,6 +350,7 @@ mod tests {
             ok: false,
             error: Some("no such pack".to_string()),
             state: None,
+            diagnostics: None,
         };
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("state"));
@@ -359,6 +391,7 @@ mod tests {
                 releases: 0,
                 missing_sounds: 0,
                 commands_generated: 0,
+                hotplug: true,
             },
             issues: vec![],
         };

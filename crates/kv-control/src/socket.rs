@@ -369,6 +369,7 @@ mod tests {
             ok: true,
             error: None,
             state: None,
+            diagnostics: None,
         };
         write_message(&mut stream, &ServerMessage::Response(response)).unwrap();
         handle.join().unwrap();

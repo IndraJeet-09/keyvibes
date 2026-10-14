@@ -72,6 +72,12 @@ pub struct ControlShared {
     output_device: Option<String>,
     /// Keyboards currently attached (updated by the main loop / input path).
     keyboards: AtomicU64,
+    /// Whether the hot-plug monitor came up with the input backend.
+    hotplug: bool,
+    /// Lifecycle phase of the output stream, refreshed by the main loop.
+    audio_phase: Mutex<String>,
+    /// Where the engine persists its settings; reported by diagnostics.
+    config_path: PathBuf,
     /// Queue to the engine main loop.
     jobs: mpsc::Sender<EngineJob>,
     /// Set once when any client asks the engine to shut down.
@@ -91,9 +97,14 @@ impl ControlShared {
         runtime: &Runtime,
         config: Config,
         simulate: bool,
+        config_path: PathBuf,
         jobs: mpsc::Sender<EngineJob>,
         shutdown: Arc<AtomicBool>,
     ) -> Self {
+        let hotplug = runtime
+            .input_backend()
+            .map(|backend| backend.hotplug_enabled())
+            .unwrap_or(false);
         Self {
             started: Instant::now(),
             simulate,
@@ -109,6 +120,14 @@ impl ControlShared {
             input_stats: runtime.input_stats_block(),
             output_device: runtime.output_device().map(str::to_string),
             keyboards: AtomicU64::new(0),
+            hotplug,
+            audio_phase: Mutex::new(
+                runtime
+                    .audio()
+                    .map(|engine| phase_name(engine.phase()).to_string())
+                    .unwrap_or_else(|| "stopped".to_string()),
+            ),
+            config_path,
             jobs,
             shutdown,
             pack_cache: Mutex::new((Vec::new(), Instant::now())),
@@ -151,6 +170,18 @@ impl ControlShared {
             .clone()
     }
 
+    /// Records the lifecycle phase of the output stream.
+    ///
+    /// Called from the engine main loop, never from the real-time callback.
+    pub fn set_audio_phase(&self, phase: &str) {
+        let mut slot = self.audio_phase.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.as_str() != phase {
+            *slot = phase.to_string();
+            drop(slot);
+            self.notify();
+        }
+    }
+
     fn live_settings(&self) -> LiveSettings {
         let config = self.config_snapshot();
         LiveSettings {
@@ -166,7 +197,11 @@ impl ControlShared {
     fn audio_info(&self) -> AudioInfo {
         let stats = self.audio_stats.snapshot();
         AudioInfo {
-            phase: "running".to_string(),
+            phase: self
+                .audio_phase
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
             output_rate: stats.output_rate,
             output_device: self.output_device.clone(),
             // A "no buffer" / "empty buffer" cycle is what the sink sees as
@@ -190,6 +225,7 @@ impl ControlShared {
             releases: snapshot.key_releases,
             missing_sounds: snapshot.missing_sounds,
             commands_generated: snapshot.commands_generated,
+            hotplug: self.hotplug && !self.simulate,
         }
     }
 
@@ -300,28 +336,39 @@ fn handle_client(
                     ok: false,
                     error: Some(format!("invalid request: {error}")),
                     state: None,
+                    diagnostics: None,
                 };
                 let _ = write_line(&mut stream, &kv_control::ServerMessage::Response(response));
                 return;
             }
         };
 
-        // Only mutations produce an event; reads and the subscribe handshake
-        // are answered on this connection alone.
+        // Only mutations produce an event; reads, the diagnostics sweep and
+        // the subscribe handshake are answered on this connection alone.
         let mutates = !matches!(
             envelope.cmd,
-            Request::Ping | Request::GetState | Request::Subscribe
+            Request::Ping | Request::GetState | Request::Subscribe | Request::Diagnostics
         );
         let response = match apply_request(&envelope.cmd, &shared) {
             Ok(outcome) => {
                 if matches!(envelope.cmd, Request::Subscribe) {
                     subscribed = true;
                 }
-                Response {
-                    id: envelope.id,
-                    ok: true,
-                    error: None,
-                    state: Some(outcome),
+                match outcome {
+                    Outcome::State(state) => Response {
+                        id: envelope.id,
+                        ok: true,
+                        error: None,
+                        state: Some(state),
+                        diagnostics: None,
+                    },
+                    Outcome::Checked(state, diagnostics) => Response {
+                        id: envelope.id,
+                        ok: true,
+                        error: None,
+                        state: Some(state),
+                        diagnostics: Some(diagnostics),
+                    },
                 }
             }
             Err(error) => Response {
@@ -329,6 +376,7 @@ fn handle_client(
                 ok: false,
                 error: Some(error),
                 state: None,
+                diagnostics: None,
             },
         };
         let applied = response.ok && mutates;
@@ -389,14 +437,28 @@ impl EventBus {
     }
 }
 
-fn apply_request(request: &Request, shared: &Arc<ControlShared>) -> Result<State, String> {
+/// What a successful [`apply_request`] produces.
+enum Outcome {
+    /// A plain state snapshot.
+    State(State),
+    /// A snapshot plus the environment checks from `diagnostics`.
+    Checked(State, kv_control::DiagnosticsReport),
+}
+
+fn apply_request(request: &Request, shared: &Arc<ControlShared>) -> Result<Outcome, String> {
     match request {
-        Request::Ping | Request::GetState => Ok(shared.snapshot()),
-        Request::Subscribe => Ok(shared.snapshot()),
+        Request::Ping | Request::GetState | Request::Subscribe => {
+            Ok(Outcome::State(shared.snapshot()))
+        }
+        Request::Diagnostics => {
+            let state = shared.snapshot();
+            let report = crate::diagnose::run(&state, &shared.config_path, shared.simulate);
+            Ok(Outcome::Checked(state, report))
+        }
         Request::SetEnabled { enabled } => {
             shared.input_enabled.store(*enabled, Ordering::Relaxed);
             shared.apply_live(|config| config.enabled = *enabled)?;
-            Ok(shared.snapshot())
+            Ok(Outcome::State(shared.snapshot()))
         }
         Request::SetVolume { volume } => {
             if !(0.0..=1.0).contains(volume) || !volume.is_finite() {
@@ -406,7 +468,7 @@ fn apply_request(request: &Request, shared: &Arc<ControlShared>) -> Result<State
             }
             shared.mixer_live.set_master_gain(volume * volume);
             shared.apply_live(|config| config.volume = *volume)?;
-            Ok(shared.snapshot())
+            Ok(Outcome::State(shared.snapshot()))
         }
         Request::SetVariation { pitch, gain } => {
             let mut config = shared.config.lock().unwrap_or_else(|e| e.into_inner());
@@ -423,7 +485,7 @@ fn apply_request(request: &Request, shared: &Arc<ControlShared>) -> Result<State
                 config.pitch_variation = p;
                 config.gain_variation = g;
             })?;
-            Ok(shared.snapshot())
+            Ok(Outcome::State(shared.snapshot()))
         }
         Request::SetSpatial { enabled } => {
             if let Some(player) = shared
@@ -435,7 +497,7 @@ fn apply_request(request: &Request, shared: &Arc<ControlShared>) -> Result<State
                 player.spatial(*enabled);
             }
             shared.apply_live(|config| config.spatial_audio = *enabled)?;
-            Ok(shared.snapshot())
+            Ok(Outcome::State(shared.snapshot()))
         }
         Request::SetReleaseSounds { enabled } => {
             if let Some(player) = shared
@@ -447,23 +509,23 @@ fn apply_request(request: &Request, shared: &Arc<ControlShared>) -> Result<State
                 player.release_sounds(*enabled);
             }
             shared.apply_live(|config| config.release_sounds = *enabled)?;
-            Ok(shared.snapshot())
+            Ok(Outcome::State(shared.snapshot()))
         }
         Request::SetPack { selector } => {
             shared.push_job(EngineJob::SetPack(selector.clone()));
-            Ok(shared.snapshot())
+            Ok(Outcome::State(shared.snapshot()))
         }
         Request::Preview { pack, keys } => {
             shared.push_job(EngineJob::Preview {
                 pack: pack.clone(),
                 keys: keys.clone(),
             });
-            Ok(shared.snapshot())
+            Ok(Outcome::State(shared.snapshot()))
         }
         Request::Shutdown => {
             shared.shutdown.store(true, Ordering::Relaxed);
             shared.push_job(EngineJob::Shutdown);
-            Ok(shared.snapshot())
+            Ok(Outcome::State(shared.snapshot()))
         }
     }
 }
@@ -548,6 +610,12 @@ pub fn run_main_loop(
         if shared.keyboards.load(Ordering::Relaxed) as usize != keyboards {
             shared.set_keyboards(keyboards);
             shared.notify();
+        }
+        // Keep the reported audio phase honest: the stream can drop into
+        // `reconnecting`/`failed` on a PipeWire restart without any job
+        // arriving here.
+        if let Some(engine) = runtime.audio() {
+            shared.set_audio_phase(phase_name(engine.phase()));
         }
         // The audio supervisor may have given up; exit so the process does
         // not linger as a silent socket owner.
@@ -683,10 +751,11 @@ fn default_preview_keys() -> Vec<PhysicalKey> {
 fn pack_info_at(path: &Path) -> Option<PackInfo> {
     let pack = kv_pack::KvPack::open(path).ok()?;
     let stats = pack.stats();
+    let metadata = pack.metadata();
     let missing = pack.missing_keys().len() as u32;
     Some(PackInfo {
         name: stats.name.clone(),
-        category: pack.metadata().category.clone(),
+        category: metadata.category.clone(),
         path: path.display().to_string(),
         keys: stats.keys,
         release_keys: pack.release_key_count(),
@@ -694,7 +763,43 @@ fn pack_info_at(path: &Path) -> Option<PackInfo> {
         sample_rate: stats.sample_rate,
         coverage: PhysicalKey::COUNT as u32 - missing,
         has_release: pack.has_release_sounds(),
+        author: nonempty(metadata.author.clone()),
+        license: nonempty(metadata.license.clone()),
+        source: nonempty(metadata.source.clone()),
+        description: nonempty(metadata.description.clone()),
+        synthesized: is_synthesized(&metadata.source),
     })
+}
+
+/// `None` for a manifest that left the field blank, so clients can tell
+/// "absent" from "present but empty".
+fn nonempty(value: String) -> Option<String> {
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+/// Whether `source` names one of KeyVibes' own synthesizer recipes rather
+/// than a sampled upstream project.
+///
+/// The three demo packs all publish `source = "keyvibes-synth-switch-v1"`,
+/// so the prefix check covers them without needing a new manifest field.
+fn is_synthesized(source: &str) -> bool {
+    source.starts_with("keyvibes-synth")
+}
+
+/// Maps a runtime audio phase onto the wire string.
+fn phase_name(phase: kv_audio_pipewire::AudioPhase) -> &'static str {
+    use kv_audio_pipewire::AudioPhase;
+    match phase {
+        AudioPhase::Starting => "starting",
+        AudioPhase::Running => "running",
+        AudioPhase::Reconnecting => "reconnecting",
+        AudioPhase::Failed => "failed",
+        AudioPhase::Stopped => "stopped",
+    }
 }
 
 fn pack_path_of(pack: &kv_pack::KvPack) -> Option<PathBuf> {
@@ -785,6 +890,7 @@ fn shared_empty_state() -> State {
             releases: 0,
             missing_sounds: 0,
             commands_generated: 0,
+            hotplug: false,
         },
         issues: vec![],
     }

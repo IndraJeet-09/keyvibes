@@ -130,6 +130,15 @@ impl LinuxInputBackend {
         self.pipeline.attached_count()
     }
 
+    /// Whether the hot-plug monitor is running.
+    ///
+    /// `false` only when [`enable_hotplug`](Self::enable_hotplug) was never
+    /// called or its monitor thread failed to start; attached keyboards keep
+    /// working either way.
+    pub fn hotplug_enabled(&self) -> bool {
+        self.monitor_handle.is_some()
+    }
+
     /// Whether the pipeline thread is still running.
     pub fn is_running(&self) -> bool {
         self.pipeline.is_running()

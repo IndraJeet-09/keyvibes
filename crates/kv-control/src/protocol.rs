@@ -239,6 +239,54 @@ pub struct PreviewResult {
     pub missing: usize,
 }
 
+/// How badly a [`DiagnosticItem`] needs the user's attention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticStatus {
+    /// The check passed; nothing to do.
+    Ok,
+    /// The check degraded but the engine still works.
+    Warning,
+    /// The check failed; the engine cannot do its job until it is fixed.
+    Error,
+}
+
+/// One environment check, written for a person rather than a log file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiagnosticItem {
+    /// Stable identifier (`input.permission`, `audio.pipewire`, ...), so a
+    /// UI can match a recheck against its previous result.
+    pub id: String,
+    /// Short human label ("Keyboard input access").
+    pub label: String,
+    /// Outcome.
+    pub status: DiagnosticStatus,
+    /// What was actually observed - never a guess.
+    pub detail: String,
+    /// Plain-language explanation of what to do about it, if anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix: Option<String>,
+    /// An exact, copyable shell command that performs the fix, when one
+    /// exists. KeyVibes never runs it itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// Whether pressing "recheck" could plausibly change the result.
+    pub recheckable: bool,
+}
+
+/// The full result of [`Request::Diagnostics`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiagnosticsReport {
+    /// Checks in display order.
+    pub items: Vec<DiagnosticItem>,
+    /// `true` when every item is [`DiagnosticStatus::Ok`].
+    pub healthy: bool,
+    /// Number of items at each severity, for a one-line summary.
+    pub errors: u32,
+    /// See [`Self::errors`].
+    pub warnings: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

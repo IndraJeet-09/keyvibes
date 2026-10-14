@@ -14,8 +14,8 @@ pub mod protocol;
 pub mod socket;
 
 pub use protocol::{
-    AudioInfo, EngineInfo, Envelope, Event, InputInfo, LiveSettings, PackInfo, PreviewResult,
-    Request, Response, ServerMessage, State,
+    AudioInfo, DiagnosticItem, DiagnosticStatus, DiagnosticsReport, EngineInfo, Envelope, Event,
+    InputInfo, LiveSettings, PackInfo, PreviewResult, Request, Response, ServerMessage, State,
 };
 pub use socket::{default_socket_path, read_request, write_message, Client, Server, SOCKET_ENV};
 

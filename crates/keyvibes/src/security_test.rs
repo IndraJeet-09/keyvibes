@@ -67,6 +67,10 @@ const WRITE_ALLOWLIST: &[&str] = &[
     // Cargo tests: scratch packs and manifests, all removed afterwards.
     "crates/keyvibes/tests/diagnostics.rs",
     "crates/kv-pack/tests/key_coverage.rs",
+    // The desktop UI's only write is its own XDG autostart entry, a plain
+    // `.desktop` file under the user's config home. It carries no pack
+    // data, no settings and no key identity - just `Exec=keyvibes run`.
+    "crates/keyvibes-ui/src/autostart.rs",
 ];
 
 /// Crates whose source must never log a key event.
@@ -81,10 +85,10 @@ const REALTIME_CRATES: &[&str] = &[
 
 /// Files allowed to spawn a process.
 ///
-/// Only three kinds exist in the workspace: the `pw-top` XRUN probe (fixed
-/// binary, fixed arguments, no shell), and acceptance commands that re-exec
-/// this binary. Nothing in the pack crate is on this list, so pack metadata
-/// can never reach an argv.
+/// Only four kinds exist in the workspace: the `pw-top` XRUN probe (fixed
+/// binary, fixed arguments, no shell), the desktop UI's engine spawn, and
+/// acceptance commands that re-exec this binary. Nothing in the pack crate
+/// is on this list, so pack metadata can never reach an argv.
 const COMMAND_ALLOWLIST: &[&str] = &[
     // Reads PipeWire's per-node ERR counter with literal arguments only.
     "xrun.rs",
@@ -99,9 +103,20 @@ const COMMAND_ALLOWLIST: &[&str] = &[
     "acceptance_test.rs",
     // Cargo tests that drive the shipped binary to check its diagnostics.
     "crates/keyvibes/tests/diagnostics.rs",
+    // The desktop UI starts exactly one process: the engine, via a fixed
+    // `keyvibes run` argv with no shell and no metadata in between. It is
+    // the same binary the user would have started by hand, and it is only
+    // spawned when no engine is already listening.
+    "crates/keyvibes-ui/src/session.rs",
 ];
 
 /// Crates that may be absent from the dependency graph, checked transitively.
+///
+/// `tracing` is deliberately *not* on this list: `zbus` - which the status
+/// area needs to talk D-Bus - depends on it unconditionally. It is a
+/// library, not a sink: nothing in this workspace calls it and no subscriber
+/// is ever installed, so no event can leave the process through it. The
+/// companion check below proves exactly that.
 const FORBIDDEN_DEPENDENCIES: &[&str] = &[
     "reqwest",
     "hyper",
@@ -112,7 +127,6 @@ const FORBIDDEN_DEPENDENCIES: &[&str] = &[
     "curl",
     "curl-sys",
     "log",
-    "tracing",
     "tracing-subscriber",
     "env_logger",
     "fern",
@@ -190,6 +204,61 @@ pub fn run() -> Result<()> {
                     format!("{} crate(s), none able to reach the network", deps.len())
                 } else {
                     format!("found {}", summarize(&hits))
+                },
+            );
+
+            // A logging *library* may still be present transitively (zbus
+            // pulls `tracing` unconditionally for its own spans). What must
+            // never happen is this workspace calling into it: a call site
+            // would have to format whatever it is handed, and this program
+            // handles every key the user presses.
+            let sinks: Vec<String> = deps
+                .iter()
+                .filter(|name| {
+                    [
+                        "tracing",
+                        "log",
+                        "env_logger",
+                        "tracing-subscriber",
+                        "fern",
+                        "slog",
+                    ]
+                    .contains(&name.as_str())
+                })
+                .cloned()
+                .collect();
+            let calls = find_code(
+                &sources,
+                &[
+                    "tracing::",
+                    "tracing_subscriber::",
+                    "log::",
+                    "env_logger::",
+                    "fern::",
+                    "slog::",
+                ],
+                false,
+            );
+            report.add(
+                if calls.is_empty() && sinks.iter().all(|name| name == "tracing") {
+                    Status::Pass
+                } else {
+                    Status::Fail
+                },
+                "no workspace code emits a log record",
+                if calls.is_empty() {
+                    if sinks.is_empty() {
+                        "no logging crate in the graph and no call site in the source".to_string()
+                    } else {
+                        format!(
+                            "{} logging crate(s) present transitively ({}), zero call sites in \
+                             the workspace and no subscriber installed",
+                            sinks.len(),
+                            sinks.join(", ")
+                        )
+                    }
+                } else {
+                    format!("found {}", summarize(&calls))
                 },
             );
         }
@@ -759,13 +828,36 @@ fn find(sources: &[Source], tokens: &[&str], insensitive: bool) -> Vec<String> {
             code.clone()
         };
         for needle in &needles {
-            if let Some(index) = haystack.find(needle.as_str()) {
+            // Every occurrence counts: a check that counts sites would
+            // otherwise see one hit per file and pass a workspace with two.
+            let mut from = 0;
+            while let Some(offset) = haystack[from..].find(needle.as_str()) {
+                let index = from + offset;
+                from = index + 1;
+                if !at_path_boundary(&haystack, index) {
+                    continue;
+                }
                 let (line, column) = line_column(&haystack, index);
                 hits.push(format!("{}:{line}:{column} `{needle}`", display(path)));
             }
         }
     }
     hits
+}
+
+/// Whether `haystack[index..]` may begin a crate path.
+///
+/// The call-site scan is case-insensitive, so `AboutDialog::new()` would
+/// otherwise register as the banned `log::` path. A real `use`/`log::info!`
+/// path always starts after whitespace or punctuation.
+fn at_path_boundary(haystack: &str, index: usize) -> bool {
+    match index.checked_sub(1) {
+        Some(previous) => {
+            let byte = haystack.as_bytes()[previous];
+            !(byte.is_ascii_alphanumeric() || byte == b'_')
+        }
+        None => true,
+    }
 }
 
 /// Like [`find`] but with string literals blanked out first, so a banned

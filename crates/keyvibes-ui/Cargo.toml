@@ -1,0 +1,37 @@
+[package]
+name = "keyvibes-ui"
+description = "KeyVibes desktop control surface (GTK4 + libadwaita)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "keyvibes-ui"
+path = "src/main.rs"
+
+[dependencies]
+kv-control.workspace = true
+anyhow.workspace = true
+
+# POSIX signal numbers for the shutdown handlers; `libc` is already in the
+# graph, so this costs no extra weight.
+libc.workspace = true
+
+# Native desktop toolkit: GTK4 for the widgets, libadwaita for the
+# header/toast/status-page vocabulary that keeps the UI consistent across
+# GNOME, KDE, i3 and Hyprland. Version features stay off so the binary runs
+# against any GTK 4 / libadwaita 1.0 the distribution ships.
+gtk = { package = "gtk4", version = "0.9", default-features = false }
+adw = { package = "libadwaita", version = "0.7", default-features = false }
+
+# Status-notifier (tray) host client: pure Rust over D-Bus, no C indicator
+# library. `async-io` picks a runtime that does not need Tokio, and
+# `blocking` exposes the synchronous `spawn`/`update` API this crate uses so
+# the tray can be driven straight from the GTK main loop.
+ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
+
+# Bridges worker threads to the GTK main loop (`glib::spawn_future_local`).
+async-channel = "2"

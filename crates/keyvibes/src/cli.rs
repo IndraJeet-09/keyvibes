@@ -382,6 +382,13 @@ pub enum CtlAction {
     /// Follow engine state changes until interrupted (Ctrl+C)
     Watch,
 
+    /// Run the read-only environment checks and print them
+    ///
+    /// Input access, PipeWire, packs, configuration: each item reports what
+    /// was observed and - when relevant - an exact command that fixes it.
+    /// Nothing is changed by running this.
+    Diagnostics,
+
     /// Ask the engine to exit cleanly
     Shutdown,
 }

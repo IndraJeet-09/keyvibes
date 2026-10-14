@@ -472,6 +472,7 @@ fn run_ctl(action: CtlAction, socket: Option<PathBuf>, verbose: bool) -> Result<
             false,
         ),
         CtlAction::Watch => (Request::Subscribe, true),
+        CtlAction::Diagnostics => (Request::Diagnostics, false),
         CtlAction::Shutdown => (Request::Shutdown, false),
     };
 
@@ -489,6 +490,10 @@ fn run_ctl(action: CtlAction, socket: Option<PathBuf>, verbose: bool) -> Result<
                 .unwrap_or_else(|| "unknown error".to_string())
         );
     }
+    if let Some(report) = response.diagnostics {
+        print_diagnostics(&report, verbose);
+        return Ok(());
+    }
     if verbose {
         if let Some(state) = &response.state {
             println!("{}", serde_json::to_string_pretty(state)?);
@@ -502,6 +507,41 @@ fn run_ctl(action: CtlAction, socket: Option<PathBuf>, verbose: bool) -> Result<
         }
     }
     Ok(())
+}
+
+/// `keyvibes ctl diagnostics`: a readable pass over the environment checks.
+///
+/// Each line says what was observed; a fix and its copyable command follow
+/// on indented lines so `keyvibes ctl diagnostics | grep -A2 fix` is useful
+/// and a human skimming the terminal gets the same answer.
+fn print_diagnostics(report: &kv_control::DiagnosticsReport, verbose: bool) {
+    if verbose {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(report).unwrap_or_default()
+        );
+        return;
+    }
+    println!(
+        "keyvibes diagnostics: {} error(s), {} warning(s){}",
+        report.errors,
+        report.warnings,
+        if report.healthy { " - ready" } else { "" }
+    );
+    for item in &report.items {
+        let tag = match item.status {
+            kv_control::DiagnosticStatus::Ok => "ok  ",
+            kv_control::DiagnosticStatus::Warning => "warn",
+            kv_control::DiagnosticStatus::Error => "ERR ",
+        };
+        println!("  [{tag}] {}: {}", item.label, item.detail);
+        if let Some(fix) = &item.fix {
+            println!("         fix: {fix}");
+        }
+        if let Some(command) = &item.command {
+            println!("         run: {command}");
+        }
+    }
 }
 
 /// `keyvibes run [--pack <name-or-path>] [--rate <hz>] [--simulate] [--duration <s>]`

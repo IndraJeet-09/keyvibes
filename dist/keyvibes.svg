@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2a38"/>
+      <stop offset="1" stop-color="#16161e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- base plate -->
+  <rect x="18" y="46" width="220" height="164" rx="34" fill="url(#plate)"/>
+  <rect x="18" y="46" width="220" height="164" rx="34" fill="none" stroke="#34344297" stroke-width="2"/>
+
+  <!-- keycap -->
+  <rect x="42" y="70" width="172" height="116" rx="26" fill="url(#cap)"/>
+  <rect x="58" y="86" width="140" height="58" rx="16" fill="#0d0d12" opacity=".45"/>
+
+  <!-- sound arcs -->
+  <path d="M96 160 q32 -22 64 0" fill="none" stroke="#f5f3ff" stroke-width="9" stroke-linecap="round" opacity=".92"/>
+  <path d="M112 174 q16 -12 32 0" fill="none" stroke="#f5f3ff" stroke-width="7" stroke-linecap="round" opacity=".55"/>
+</svg>

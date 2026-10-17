@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=KeyVibes
+GenericName=Keyboard sound
+Comment=Play a mechanical keyboard sound on every key press
+Exec=keyvibes-ui
+Icon=keyvibes
+Terminal=false
+Categories=AudioVideo;Audio;Settings;
+Keywords=keyboard;switch;sound;typing;mechanical;
+StartupNotify=true
+StartupWMClass=org.keyvibes.KeyVibes

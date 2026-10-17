@@ -71,6 +71,11 @@ const WRITE_ALLOWLIST: &[&str] = &[
     // `.desktop` file under the user's config home. It carries no pack
     // data, no settings and no key identity - just `Exec=keyvibes run`.
     "crates/keyvibes-ui/src/autostart.rs",
+    // The packaging tool. Every write lands under `dist/`: staged trees,
+    // package control files, generated checksums and release metadata.
+    // It never reads or writes the user's config, a pack's contents, or
+    // anything under a home directory.
+    "xtask/src/main.rs",
 ];
 
 /// Crates whose source must never log a key event.
@@ -85,10 +90,11 @@ const REALTIME_CRATES: &[&str] = &[
 
 /// Files allowed to spawn a process.
 ///
-/// Only four kinds exist in the workspace: the `pw-top` XRUN probe (fixed
-/// binary, fixed arguments, no shell), the desktop UI's engine spawn, and
-/// acceptance commands that re-exec this binary. Nothing in the pack crate
-/// is on this list, so pack metadata can never reach an argv.
+/// Four kinds exist in the workspace: the `pw-top` XRUN probe (fixed
+/// binary, fixed arguments, no shell), the desktop UI's engine spawn,
+/// acceptance commands that re-exec this binary, and the packaging tool.
+/// Nothing in the pack crate is on this list, so pack metadata can never
+/// reach an argv.
 const COMMAND_ALLOWLIST: &[&str] = &[
     // Reads PipeWire's per-node ERR counter with literal arguments only.
     "xrun.rs",
@@ -108,6 +114,11 @@ const COMMAND_ALLOWLIST: &[&str] = &[
     // the same binary the user would have started by hand, and it is only
     // spawned when no engine is already listening.
     "crates/keyvibes-ui/src/session.rs",
+    // The packaging tool shells out to build and archive utilities -
+    // cargo, make, tar, ar, sha256sum - each with literal arguments built
+    // from the release version and the workspace path. Nothing from a
+    // pack, a manifest, or the network is ever an argv element.
+    "xtask/src/main.rs",
 ];
 
 /// Crates that may be absent from the dependency graph, checked transitively.

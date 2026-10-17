@@ -29,10 +29,15 @@ PACK_GLOB = assets/soundpacks/*.kvpack
 # systemd looks in $(PREFIX)/lib/systemd/user for a system prefix and under
 # the XDG data dir for a per-user one. Pick on PREFIX so both work unaided;
 # override SYSTEMD_USER_DIR if your distribution differs.
-SYSTEMD_USER_DIR ?= $(if $(filter $(HOME)/%,$(PREFIX)),$(PREFIX)/share/systemd/user,$(PREFIX)/lib/systemd/user)
+# DESTDIR is part of the path: `make install DESTDIR=/stage PREFIX=/usr`
+# must stage the unit there, not write into the live /usr.
+SYSTEMD_USER_DIR ?= $(if $(filter $(HOME)/%,$(PREFIX)),$(DESTDIR)$(PREFIX)/share/systemd/user,$(DESTDIR)$(PREFIX)/lib/systemd/user)
 
-BIN   = target/release/keyvibes
-DOCS  = README.md docs/install.md docs/environment.md
+BIN    = target/release/keyvibes
+UIBIN  = target/release/keyvibes-ui
+DOCS   = README.md docs/install.md docs/environment.md
+DESKTOP = dist/keyvibes-ui.desktop
+ICON    = dist/keyvibes.svg
 
 .PHONY: all build install uninstall help clean
 
@@ -41,7 +46,7 @@ all: build
 help:
 	@echo "KeyVibes make targets:"
 	@echo "  build       cargo build --release"
-	@echo "  install     install the binary, packs, docs and user service"
+	@echo "  install     install the engine, the desktop app, packs, docs\
 	@echo "              PREFIX=$(PREFIX)  DESTDIR=$(DESTDIR)"
 	@echo "  uninstall   remove exactly what install put there"
 	@echo "  clean       remove build output"
@@ -57,6 +62,18 @@ install: build
 	install -d "$(BINDIR)"
 	install -m755 "$(BIN)" "$(BINDIR)/keyvibes"
 	@echo "  binary   $(BINDIR)/keyvibes"
+	@if [ -x "$(UIBIN)" ]; then \
+		install -m755 "$(UIBIN)" "$(BINDIR)/keyvibes-ui"; \
+		echo "  binary   $(BINDIR)/keyvibes-ui"; \
+	else \
+		echo "  binary   $(BINDIR)/keyvibes-ui skipped - not built"; \
+	fi
+	install -d "$(DATADIR)/applications"
+	install -m644 "$(DESKTOP)" "$(DATADIR)/applications/keyvibes-ui.desktop"
+	@echo "  desktop  $(DATADIR)/applications/keyvibes-ui.desktop"
+	install -d "$(DATADIR)/icons/hicolor/scalable/apps"
+	install -m644 "$(ICON)" "$(DATADIR)/icons/hicolor/scalable/apps/keyvibes.svg"
+	@echo "  icon     $(DATADIR)/icons/hicolor/scalable/apps/keyvibes.svg"
 	@if ls $(PACK_GLOB) >/dev/null 2>&1; then \
 		install -d "$(PACKDIR)"; \
 		count=0; \
@@ -89,6 +106,9 @@ install: build
 
 uninstall:
 	rm -f "$(BINDIR)/keyvibes"
+	rm -f "$(BINDIR)/keyvibes-ui"
+	rm -f "$(DATADIR)/applications/keyvibes-ui.desktop"
+	rm -f "$(DATADIR)/icons/hicolor/scalable/apps/keyvibes.svg"
 	rm -f "$(SYSTEMD_USER_DIR)/keyvibes.service"
 	rm -rf "$(DATADIR)/keyvibes"
 	rm -rf "$(DOCDIR)"

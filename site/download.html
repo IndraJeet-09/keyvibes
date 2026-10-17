@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download — KeyVibes</title>
+<meta name="description" content="Download KeyVibes for Linux: deb, rpm, Arch PKGBUILD, portable archive, or the one-line installer.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="2" y="6" width="28" height="22" rx="5" fill="#8b5cf6"/>
+        <rect x="6" y="10" width="20" height="9" rx="3" fill="#0d0d12" opacity=".55"/>
+        <rect x="10" y="22" width="12" height="3" rx="1.5" fill="#0d0d12" opacity=".4"/>
+      </svg>
+      KeyVibes
+    </a>
+    <nav class="nav">
+      <a href="index.html#features">Features</a>
+      <a href="index.html#packs">Sound packs</a>
+      <a href="index.html#install">Install</a>
+      <a href="download.html">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section style="border-top:0; padding-bottom:1rem">
+    <div class="wrap">
+      <span class="eyebrow" id="version-badge">v0.1.0 · stable</span>
+      <h1 style="font-size:clamp(2rem,5vw,3rem)">Download KeyVibes</h1>
+      <p class="lede">
+        Pick the package for your distribution. Every artifact is built from
+        the same tagged source and ships with a SHA-256 checksum.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Packages</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>For</th>
+              <th>File</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Debian package</td>
+              <td>Debian, Ubuntu, Mint, Pop!_OS</td>
+              <td class="mono" data-file="deb">keyvibes_0.1.0_amd64.deb</td>
+              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Download</a></td>
+            </tr>
+            <tr>
+              <td>RPM package</td>
+              <td>Fedora, openSUSE, RHEL</td>
+              <td class="mono" data-file="rpm">keyvibes-0.1.0-1.x86_64.rpm</td>
+              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Download</a></td>
+            </tr>
+            <tr>
+              <td>Arch package</td>
+              <td>Arch Linux, Manjaro, EndeavourOS</td>
+              <td class="mono">PKGBUILD</td>
+              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Get</a></td>
+            </tr>
+            <tr>
+              <td>Portable archive</td>
+              <td>Any glibc distribution</td>
+              <td class="mono" data-file="portable">keyvibes-0.1.0-x86_64-linux.tar.gz</td>
+              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Download</a></td>
+            </tr>
+            <tr>
+              <td>Installer script</td>
+              <td>Any of the above, automated</td>
+              <td class="mono" data-file="installer">install.sh</td>
+              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Download</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        Want the machine-readable list? <code>releases.json</code> next to
+        these files carries the version, file names, sizes and SHA-256 sums
+        for the current release.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Verify what you downloaded</h2>
+      <p class="section-lede">
+        Every release publishes a <code>SHA256SUMS</code> file alongside the
+        artifacts. Checking it takes one command.
+      </p>
+<pre>sha256sum --check --ignore-missing SHA256SUMS
+<span class="c"># keyvibes_0.1.0_amd64.deb: OK</span></pre>
+      <p class="checksum">Compare the fingerprint against the value published in
+      the release notes. Nothing here downloads or executes on your behalf.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Requirements</h2>
+      <div class="grid">
+        <div class="card">
+          <span class="tag">Kernel</span>
+          <h3>Linux 5.x or newer</h3>
+          <p>The <code>evdev</code> interface and <code>/dev/input</code>
+          nodes, which every distribution ships.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Audio</span>
+          <h3>PipeWire</h3>
+          <p>Your session's PipeWire socket. PulseAudio setups that run
+          through PipeWire's compatibility layer work too.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Access</span>
+          <h3>Read access to input devices</h3>
+          <p>Membership of the <code>input</code> group, or the shipped udev
+          rule. KeyVibes never asks for root.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Desktop app</span>
+          <h3>GTK 4 + libadwaita</h3>
+          <p>Only for <code>keyvibes-ui</code>. The engine runs fine on a
+          headless machine.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Install from a terminal</h2>
+      <div class="steps">
+        <div class="step">
+          <div>
+            <h3>Debian / Ubuntu</h3>
+<pre>sudo apt install ./keyvibes_0.1.0_amd64.deb</pre>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h3>Fedora / openSUSE</h3>
+<pre>sudo rpm -i keyvibes-0.1.0-1.x86_64.rpm</pre>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h3>Arch Linux</h3>
+<pre>makepkg -si <span class="c"># in the directory holding the PKGBUILD</span></pre>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h3>Portable / installer</h3>
+<pre>tar -xzf keyvibes-0.1.0-x86_64-linux.tar.gz
+./keyvibes-0.1.0-x86_64-linux/install.sh</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions" style="margin-top:2rem">
+        <a class="btn btn-primary" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Get the latest release</a>
+        <a class="btn btn-ghost" href="index.html#install">Build from source</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>KeyVibes — MIT OR Apache-2.0 licensed.</span>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="https://github.com/yourusername/keyvibes" rel="noopener">GitHub</a>
+      <a href="https://github.com/yourusername/keyvibes/issues" rel="noopener">Issues</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

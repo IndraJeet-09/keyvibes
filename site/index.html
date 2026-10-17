@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeyVibes — mechanical keyboard sounds for Linux</title>
+<meta name="description" content="KeyVibes plays a mechanical keyboard sound on every key press. evdev to PipeWire, no root, no keylogging, no input injection.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="2" y="6" width="28" height="22" rx="5" fill="#8b5cf6"/>
+        <rect x="6" y="10" width="20" height="9" rx="3" fill="#0d0d12" opacity=".55"/>
+        <rect x="10" y="22" width="12" height="3" rx="1.5" fill="#0d0d12" opacity=".4"/>
+      </svg>
+      KeyVibes
+    </a>
+    <nav class="nav">
+      <a href="#features">Features</a>
+      <a href="#packs">Sound packs</a>
+      <a href="#install">Install</a>
+      <a href="download.html">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero" style="border-top:0">
+    <div class="wrap">
+      <span class="eyebrow">Linux · evdev → PipeWire · free and open source</span>
+      <h1>Hear your keyboard<br>the way you wish it sounded.</h1>
+      <p class="lede">
+        KeyVibes plays a mechanical switch sound on every key press, straight
+        from the kernel's evdev interface to your speakers. No root, no
+        keylogger, no input injection — one background process and a sound pack.
+      </p>
+      <div class="actions">
+        <a class="btn btn-primary" href="download.html">Download for Linux</a>
+        <a class="btn btn-ghost" href="https://github.com/yourusername/keyvibes" rel="noopener">Source on GitHub</a>
+      </div>
+
+      <div class="keys" id="keys" aria-label="Try it: click a key to hear it">
+        <button class="key" data-note="60">Q<small>60</small></button>
+        <button class="key" data-note="62">W<small>62</small></button>
+        <button class="key" data-note="64">E<small>64</small></button>
+        <button class="key" data-note="65">R<small>65</small></button>
+        <button class="key" data-note="67">T<small>67</small></button>
+        <button class="key" data-note="69">Y<small>69</small></button>
+        <button class="key" data-note="71">U<small>71</small></button>
+        <button class="key" data-note="72">I<small>72</small></button>
+        <button class="key" data-note="74">O<small>74</small></button>
+        <button class="key" data-note="76">P<small>76</small></button>
+      </div>
+      <p class="hint">A rough preview — the real thing is a recorded or synthesized pack with two clips per key, plus release sounds.</p>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Built around one rule</h2>
+      <p class="section-lede">
+        The path from key press to speaker must never do anything that can
+        block. That rule decides where the locks are, what the real-time
+        thread is allowed to touch, and why packs are memory-mapped files
+        rather than parsed structures.
+      </p>
+
+      <div class="grid">
+        <div class="card">
+          <span class="tag">Latency</span>
+          <h3>Nothing blocks the audio path</h3>
+          <p>A lock-free SPSC queue feeds a 32-voice mixer. The real-time
+          callback takes zero locks, allocates nothing, and performs no I/O.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Privacy</span>
+          <h3>Not a keylogger</h3>
+          <p>Key codes choose a sound and are then forgotten. No key code is
+          ever written to a log, a file, or a socket.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Safety</span>
+          <h3>Not an input remapper</h3>
+          <p>KeyVibes never modifies, blocks, or injects key events. It reads
+          them, plays a sound, and hands them straight through.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Access</span>
+          <h3>No root, no desktop dependency</h3>
+          <p>It reads <code>/dev/input</code> and talks to your user's PipeWire
+          socket — what a normal user can already do. Works on X11 and Wayland
+          alike, because it needs neither.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Audio</span>
+          <h3>Real-time, measured</h3>
+          <p>Cubic-interpolated voices, oldest-first voice stealing, and a
+          real-time limiter. Sub-5µs render times on a full 32-voice mix.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Desktop</span>
+          <h3>A window when you want one</h3>
+          <p>The engine is headless by design. A GTK4/libadwaita app sits
+          beside it for browsing packs, adjusting settings, and running
+          diagnostics — and quits without leaving the engine behind.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="packs">
+    <div class="wrap">
+      <h2>Sound packs</h2>
+      <p class="section-lede">
+        A pack is a directory with a manifest and a WAV per key. Three
+        synthesized packs ship with KeyVibes; upstream packs drop into the
+        same folder.
+      </p>
+
+      <div class="packs">
+        <div class="pack">
+          <div class="pack-head"><h3>Default</h3><span class="badge">synth</span></div>
+          <p>Modeled linear-switch press for all 104 keys, two variants per
+          key. The pack KeyVibes starts with.</p>
+          <button data-press="0">Hear a press</button>
+        </div>
+        <div class="pack">
+          <div class="pack-head"><h3>Holy Panda</h3><span class="badge">synth</span></div>
+          <p>A tactile bump with a rounded bottom-out — the clicky-adjacent
+          crowd's reference switch.</p>
+          <button data-press="1">Hear a press</button>
+        </div>
+        <div class="pack">
+          <div class="pack-head"><h3>Buckling Spring</h3><span class="badge">upstream</span></div>
+          <p>The Model M ring: a metallic buckling snap, recorded rather than
+          modeled.</p>
+          <button data-press="2">Hear a press</button>
+        </div>
+      </div>
+
+      <div class="note">
+        Preview audio on this page is synthesized in the browser and is only a
+        taste. The real packs ship with release clips, per-key variation, and
+        optional spatialization.
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Install</h2>
+      <p class="section-lede">Two commands to a running engine, or build it yourself.</p>
+
+      <div class="steps">
+        <div class="step">
+          <div>
+            <h3>Get a package</h3>
+            <p>Debian/Ubuntu, Fedora/openSUSE, Arch, or a portable archive —
+            <a href="download.html">pick your flavour</a>.</p>
+<pre><span class="c"># Debian / Ubuntu</span>
+sudo apt install ./keyvibes_0.1.0_amd64.deb</pre>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h3>Run it</h3>
+            <p>The engine is headless. Start it, then open the app if you want
+            a window.</p>
+<pre>keyvibes run &amp;
+keyvibes-ui</pre>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h3>Check it</h3>
+            <p>One command drives the whole flow from launch to speakers.</p>
+<pre>keyvibes acceptance-test</pre>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h3>Or build from source</h3>
+            <p>Needs Rust, GTK 4 and libadwaita development packages.</p>
+<pre>git clone https://github.com/yourusername/keyvibes
+cd keyvibes &amp;&amp; cargo build --release
+cargo run -p keyvibes -- acceptance-test</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Honest about what it is not</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Not a remapper</h3>
+          <p>It cannot change what your keys do.</p>
+        </div>
+        <div class="card">
+          <h3>Not a keylogger</h3>
+          <p>Nothing you type is stored or transmitted.</p>
+        </div>
+        <div class="card">
+          <h3>Not root</h3>
+          <p>No setuid binary, no daemon running as another user.</p>
+        </div>
+        <div class="card">
+          <h3>Not tied to a desktop</h3>
+          <p>No X11, no Wayland, no toolkit in the engine's dependency graph —
+          enforced by an audit.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>KeyVibes — MIT OR Apache-2.0 licensed.</span>
+    <nav>
+      <a href="download.html">Download</a>
+      <a href="https://github.com/yourusername/keyvibes" rel="noopener">GitHub</a>
+      <a href="https://github.com/yourusername/keyvibes/issues" rel="noopener">Issues</a>
+      <a href="https://github.com/yourusername/keyvibes/blob/main/THIRD_PARTY_NOTICES.md" rel="noopener">Third-party notices</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

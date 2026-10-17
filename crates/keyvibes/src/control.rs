@@ -596,6 +596,9 @@ pub fn run_main_loop(
 ) -> Result<()> {
     shared.refresh_player(runtime);
 
+    // A job pulled out of a save burst, waiting for the next pass.
+    let mut deferred: Option<EngineJob> = None;
+
     loop {
         if shared.shutdown.load(Ordering::Relaxed) {
             break;
@@ -632,10 +635,19 @@ pub fn run_main_loop(
             }
         }
 
-        match jobs.recv_timeout(Duration::from_millis(250)) {
+        let current = deferred
+            .take()
+            .map_or_else(|| jobs.recv_timeout(Duration::from_millis(250)), Ok);
+        match current {
             Ok(EngineJob::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Ok(EngineJob::SaveConfig) => {
+                // Every live setting queues one of these, so dragging the
+                // volume slider queues one per tick and they all describe
+                // the same file. Collapse the burst here: the config in
+                // memory is already current, and the extra writes would
+                // only cost syscalls.
+                deferred = drain_save_burst(jobs);
                 let config = shared.config_snapshot();
                 if let Err(error) = config.save(config_path) {
                     eprintln!("keyvibes: failed to save config: {error}");
@@ -715,6 +727,20 @@ fn apply_preview(
         return Err("no playable keys in preview request".to_string());
     }
     runtime.preview(loaded, &keys).map_err(|e| e.to_string())
+}
+
+/// Consumes the rest of a run of queued config saves.
+///
+/// Returns the first job that is *not* a save, so a pack switch queued
+/// behind a burst is kept for the next pass instead of being swallowed
+/// along with the saves it followed.
+fn drain_save_burst(jobs: &mpsc::Receiver<EngineJob>) -> Option<EngineJob> {
+    while let Ok(job) = jobs.try_recv() {
+        if !matches!(job, EngineJob::SaveConfig) {
+            return Some(job);
+        }
+    }
+    None
 }
 
 /// Parses a `PhysicalKey` debug name (`"Escape"`, `"A"`, `"F1"`, ...).
@@ -911,5 +937,31 @@ mod tests {
     #[test]
     fn demo_sequence_is_nonempty() {
         assert!(!default_preview_keys().is_empty());
+    }
+
+    #[test]
+    fn a_burst_of_config_saves_collapses_into_a_single_write() {
+        let (tx, rx) = mpsc::channel();
+        for _ in 0..3 {
+            tx.send(EngineJob::SaveConfig).unwrap();
+        }
+        tx.send(EngineJob::SetPack("Alpaca".to_string())).unwrap();
+        for _ in 0..2 {
+            tx.send(EngineJob::SaveConfig).unwrap();
+        }
+
+        // The loop takes the leading save and collapses the rest of the run
+        // up to the next real job - keeping that job rather than swallowing
+        // it along with the saves it followed.
+        assert!(matches!(rx.recv().unwrap(), EngineJob::SaveConfig));
+        assert!(matches!(
+            drain_save_burst(&rx),
+            Some(EngineJob::SetPack(name)) if name == "Alpaca"
+        ));
+
+        // Behind the pack switch the two saves become one: the loop takes
+        // the first and drains the second, so the file is written once.
+        assert!(matches!(rx.recv().unwrap(), EngineJob::SaveConfig));
+        assert!(drain_save_burst(&rx).is_none());
     }
 }

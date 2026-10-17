@@ -1,6 +1,5 @@
 # Rust
 /target
-Cargo.lock
 **/*.rs.bk
 *.pdb
 
@@ -25,6 +24,9 @@ Thumbs.db
 
 # Generated
 /docs/api/
+/dist/stage/
+/dist/out/
+/site/releases.json
 
 __pycache__/
 *.pyc

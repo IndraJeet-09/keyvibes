@@ -1,0 +1,19 @@
+{
+  "name": "KeyVibes",
+  "version": "0.1.0",
+  "repository": "https://github.com/yourusername/keyvibes",
+  "files": {
+    "deb": "keyvibes_0.1.0_amd64.deb",
+    "rpm": "keyvibes-0.1.0-1.x86_64.rpm",
+    "portable": "keyvibes-0.1.0-x86_64-linux.tar.gz",
+    "installer": "install.sh",
+    "pkgbuild": "PKGBUILD"
+  },
+  "artifacts": [
+    {"name": "keyvibes-0.1.0-x86_64-linux.tar.gz", "kind": "portable", "size": 18369823, "sha256": "dbd3d55d530cdb2b1625dcbd03911a1d658526f011d444e3cb84d600935e7288"},
+    {"name": "keyvibes_0.1.0_amd64.deb", "kind": "deb", "size": 18370142, "sha256": "5dba13319ec5d78d47c9f8c02edd6807583859d13c973d12095cb69af3c9c24e"},
+    {"name": "PKGBUILD", "kind": "pkgbuild", "size": 685, "sha256": "a5bb3498eb4a1c100ca091ec3a7ec188e064c43e99fd220f95a9bc214d8765e7"},
+    {"name": "keyvibes-0.1.0.spec", "kind": "rpm-spec", "size": 841, "sha256": "acc5fd4cb37dc25888acd8a38689a9b38b8f15c13e86e48cf2ae43b093789a7e"},
+    {"name": "install.sh", "kind": "installer", "size": 1963, "sha256": "9af21b73d217dbf1a3d6362f0be0ad324c03df0a226a95a0b0b01490c3500d08"}
+  ]
+}

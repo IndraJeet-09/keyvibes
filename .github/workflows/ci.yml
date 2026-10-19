@@ -143,6 +143,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Build the sound packs
+      run: cargo xtask packs
+
+    - name: Build the site catalog and the preview audio
+      run: cargo xtask site
 
     - name: Check every local link resolves
       run: |
@@ -153,6 +160,48 @@ jobs:
           test -e "site/$target" || { echo "missing: $target"; exit 1; }
         done
         echo "all local links resolve"
+
+    - name: The pack catalog and its preview audio exist
+      run: |
+        python3 - <<'PY'
+        import json, os
+
+        catalog = json.load(open("site/packs.json"))
+        packs = catalog["packs"]
+        assert catalog["pack_count"] == len(packs) > 0, "empty catalog"
+
+        slugs = [pack["slug"] for pack in packs]
+        assert len(set(slugs)) == len(slugs), "two packs share a slug"
+        assert len({pack["name"] for pack in packs}) == len(packs), "duplicate pack names"
+
+        genres = {"linear", "tactile", "clicky", "uncategorized"}
+        release_packs = 0
+        for pack in packs:
+            name = pack["name"]
+            assert pack["category"] in genres, f"{name}: unknown category"
+            assert 0 < pack["coverage"] <= 104, f"{name}: coverage {pack['coverage']}"
+            assert pack["has_release"] == (pack["release_keys"] > 0), f"{name}: release flags disagree"
+            release_packs += pack["has_release"]
+
+            preview = pack["preview"]
+            assert preview, f"{name}: no preview strip"
+            path = os.path.join("site", preview["file"])
+            assert os.path.exists(path), f"{name}: missing preview file {path}"
+            assert preview["sample_rate"] > 0 and preview["channels"] in (1, 2)
+            assert preview["slots"], f"{name}: preview has no slot"
+
+            kinds = {slot["kind"] for slot in preview["slots"]}
+            assert kinds <= {"press", "release"}, f"{name}: {kinds}"
+            if not pack["has_release"]:
+                assert "release" not in kinds, f"{name}: release clip without release support"
+            for slot in preview["slots"]:
+                assert slot["start"] >= 0 and slot["duration"] > 0, f"{name}: bad slot"
+                assert slot["start"] + slot["duration"] <= preview["duration"] + 1e-6, \
+                    f"{name}: slot runs past the strip"
+
+        print(f"ok: {len(packs)} packs, {release_packs} with release sounds, "
+              f"{sum(len(p['preview']['slots']) for p in packs)} preview slots")
+        PY
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

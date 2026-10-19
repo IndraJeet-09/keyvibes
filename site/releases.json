@@ -1,21 +1,19 @@
 {
   "name": "KeyVibes",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "repository": "https://github.com/IndraJeet-09/keyvibes",
   "files": {
-    "deb": "keyvibes_0.1.0_amd64.deb",
-    "rpm-spec": "keyvibes-0.1.0.spec",
-    "portable": "keyvibes-0.1.0-x86_64-linux.tar.gz",
+    "deb": "keyvibes_0.1.1_amd64.deb",
     "installer": "install.sh",
     "pkgbuild": "PKGBUILD",
-    "appimage": "KeyVibes-0.1.0-x86_64.AppImage"
+    "portable": "keyvibes-0.1.1-x86_64-linux.tar.gz",
+    "rpm-spec": "keyvibes-0.1.1.spec"
   },
   "artifacts": [
-    {"name": "keyvibes-0.1.0-x86_64-linux.tar.gz", "kind": "portable", "size": 20990028, "sha256": "54356753e9da9a51bcbf4670bba01b9eeeb1c21ff52b651fc81f33766e4dcf53"},
-    {"name": "keyvibes_0.1.0_amd64.deb", "kind": "deb", "size": 20989726, "sha256": "0aad4adf730c2c3109b180d866b60b01abb79788f68a957a12822b29a50b805c"},
-    {"name": "PKGBUILD", "kind": "pkgbuild", "size": 685, "sha256": "9116b631457ac4eccb8b1d3d0658c79a8c3f84b5f181c00fd2ce4f2a2c32f735"},
-    {"name": "keyvibes-0.1.0.spec", "kind": "rpm-spec", "size": 1693, "sha256": "09ee61309e6e9e0972d990a8e7bf176baa8ecf8c51757c918bc1cc3b94d44b48"},
-    {"name": "install.sh", "kind": "installer", "size": 2145, "sha256": "5596bcf0642a4c14ca5469a8351a33c27965ed79eae6004c3f446ed7c68c0631"},
-    {"name": "KeyVibes-0.1.0-x86_64.AppImage", "kind": "appimage", "size": 20335096, "sha256": "eda54b86d1e84cbe405dd61ecc8770686f134213bfda6207c35ed18293e98437"}
+    {"name": "keyvibes-0.1.1-x86_64-linux.tar.gz", "kind": "portable", "size": 16642277, "sha256": "0e4cd225c03eff22a5d431a855079dc37c3d6c9e75a97cab3131da7cb6fa7ee2"},
+    {"name": "keyvibes_0.1.1_amd64.deb", "kind": "deb", "size": 16640256, "sha256": "720e376a8b37356f3d4a58da10420d991a33208c96cda4a7f24578574ef46fc2"},
+    {"name": "PKGBUILD", "kind": "pkgbuild", "size": 685, "sha256": "910e7dfa86cf39b618925cb971ee1e0728aa6d85030c58794dab8b5aa21e1530"},
+    {"name": "keyvibes-0.1.1.spec", "kind": "rpm-spec", "size": 2117, "sha256": "fc63c820f08d52155060d9008231b5afe12d5123a4b74a59861f77f5f2643f69"},
+    {"name": "install.sh", "kind": "installer", "size": 2145, "sha256": "7875162fc99987edf68380157bd8e4f7f00ceebd7d62873cc9e99ef3e9b35170"}
   ]
 }

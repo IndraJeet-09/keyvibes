@@ -1,58 +1,94 @@
-/* KeyVibes site — one stylesheet, no build step. */
+/* KeyVibes site — one stylesheet, no build step, no dependencies.
+ *
+ * Type system
+ *   display  Bricolage Grotesque — the hero, oversized and expressive
+ *   heading  Instrument Sans    — section heads
+ *   text     Inter              — body and the soundpack cards
+ *   mono     JetBrains Mono     — metadata and technical labels
+ *
+ * Palette: near-black plum, charcoal-purple, royal purple, lavender, warm
+ * white. Depth comes from layered surfaces and light, not from gradients
+ * painted over everything.
+ */
 
 :root {
-  --accent: #8b5cf6;
-  --accent-strong: #a78bfa;
-  --accent-soft: rgba(139, 92, 246, 0.16);
+  /* Surfaces */
+  --plum-950: #07050b;
+  --plum-900: #0c0913;
+  --plum-850: #120f1b;
+  --tile: #191427;
+  --tile-2: #211b31;
+  --tile-3: #2b2440;
+  --line: #2b2440;
+  --line-soft: #221c33;
 
-  --bg: #0d0d12;
-  --bg-raised: #15151c;
-  --bg-card: #17171f;
-  --line: #262632;
-  --text: #ececf1;
-  --text-dim: #9a9aa8;
-  --text-faint: #6e6e7c;
+  /* Accents */
+  --royal: #7c4dff;
+  --royal-deep: #5b32d6;
+  --royal-hi: #a78bfa;
+  --lavender: #c9b8ff;
+  --plum-glow: rgba(124, 77, 255, 0.42);
+
+  /* Text */
+  --warm-white: #f7f4ef;
+  --text: #ece7f5;
+  --text-dim: #a49dbb;
+  --text-faint: #6e6784;
+
+  --font-display: "Bricolage Grotesque", "Inter", system-ui, sans-serif;
+  --font-heading: "Instrument Sans", "Inter", system-ui, sans-serif;
+  --font-text: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   --radius: 14px;
+  --radius-card: 20px;
   --max: 1080px;
-  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, monospace;
+  --max-wide: 1200px;
+  --nav-h: 64px;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--nav-h) + 1rem); }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--plum-900);
   color: var(--text);
-  font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.65 var(--font-text);
+  letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-a { color: var(--accent-strong); text-decoration: none; }
+a { color: var(--royal-hi); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-code, kbd, .mono { font-family: var(--mono); font-size: 0.9em; }
+code, kbd, .mono { font-family: var(--font-mono); font-size: 0.9em; }
 
 .wrap { width: min(100% - 2.5rem, var(--max)); margin-inline: auto; }
+.wrap--wide { width: min(100% - 2.5rem, var(--max-wide)); margin-inline: auto; }
+
+::selection { background: var(--plum-glow); color: #fff; }
 
 /* ---------------------------------------------------------------- header */
 
 .site-header {
   position: sticky;
   top: 0;
-  z-index: 10;
-  background: rgba(13, 13, 18, 0.86);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--line);
+  z-index: 40;
+  background: rgba(9, 7, 14, 0.78);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .site-header .wrap {
   display: flex;
   align-items: center;
   gap: 1.5rem;
-  height: 64px;
+  min-height: var(--nav-h);
 }
 
 .brand {
@@ -60,153 +96,428 @@ code, kbd, .mono { font-family: var(--mono); font-size: 0.9em; }
   align-items: center;
   gap: 0.6rem;
   color: var(--text);
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
 }
 .brand:hover { text-decoration: none; }
 .brand svg { display: block; }
 
 .nav {
   display: flex;
-  gap: 1.25rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem 1.4rem;
   margin-left: auto;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
 }
-.nav a { color: var(--text-dim); }
+.nav a { color: var(--text-dim); white-space: nowrap; transition: color 0.18s var(--ease); }
 .nav a:hover { color: var(--text); text-decoration: none; }
+
+/* A compact download button for narrow screens, where the links go. */
+.site-header .nav-cta { display: none; padding: 0.45rem 0.95rem; font-size: 0.85rem; }
 
 /* ------------------------------------------------------------------ hero */
 
 .hero {
   position: relative;
-  padding: clamp(4rem, 10vw, 7rem) 0 4rem;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-top: clamp(2rem, 5vh, 3.5rem);
+  overflow: clip;
+  isolation: isolate;
 }
 
-.hero::before {
+/* Two soft lights: a warm one behind the headline, a royal one low down
+   where the keyboard sits. Nothing else glows. */
+.hero::before,
+.hero::after {
   content: "";
   position: absolute;
-  inset: -40% 20% auto;
-  height: 480px;
-  background: radial-gradient(closest-side, var(--accent-soft), transparent 70%);
+  z-index: -1;
   pointer-events: none;
+  border-radius: 50%;
+}
+.hero::before {
+  top: -28%;
+  left: 50%;
+  width: min(1100px, 120vw);
+  aspect-ratio: 2 / 1;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(124, 77, 255, 0.20), transparent 72%);
+}
+.hero::after {
+  bottom: -6%;
+  left: 50%;
+  width: min(1400px, 150vw);
+  aspect-ratio: 2.4 / 1;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(88, 44, 200, 0.26), transparent 70%);
 }
 
-.hero .wrap { position: relative; }
+.hero__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
 
 .eyebrow {
   display: inline-block;
-  padding: 0.25rem 0.7rem;
+  padding: 0.3rem 0.75rem;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--bg-raised);
+  background: var(--plum-850);
   color: var(--text-dim);
-  font-size: 0.8rem;
+  font: 500 0.78rem/1.4 var(--font-mono);
   letter-spacing: 0.02em;
 }
-
-h1 {
-  margin: 1.25rem 0 0;
-  font-size: clamp(2.4rem, 6vw, 4rem);
-  line-height: 1.05;
-  letter-spacing: -0.03em;
-  font-weight: 720;
+.eyebrow-accent {
+  margin-left: 0.4rem;
+  border-color: rgba(124, 77, 255, 0.5);
+  background: rgba(124, 77, 255, 0.14);
+  color: var(--lavender);
 }
 
-.lede {
-  max-width: 46ch;
-  margin: 1.25rem 0 0;
-  font-size: 1.15rem;
+.hero__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.hero__title {
+  margin: clamp(1.25rem, 3.2vw, 2rem) 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.9rem, 9.2vw, 7rem);
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+}
+
+/* The gradient goes on the inner span: the word wrapper is clipped and
+   transformed, and a background-clip on it would not paint through. */
+.hero__title .word.lit > span {
+  background: linear-gradient(104deg, #fff8ec 0%, var(--lavender) 42%, var(--royal-hi) 72%, var(--royal) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Word-by-word reveal, built by app.js. The hidden state is only applied
+   once the script has taken over, so the headline still reads without JS. */
+.hero__title .word { display: inline-block; overflow: hidden; vertical-align: bottom; }
+.hero__title .word > span { display: inline-block; }
+.hero__title.is-split .word > span {
+  transform: translateY(105%);
+  transition: transform 0.85s var(--ease) var(--delay, 0s);
+}
+.hero__title.is-split.is-revealed .word > span { transform: translateY(0); }
+
+.hero__lede {
+  max-width: 54ch;
+  margin: clamp(1rem, 2.2vw, 1.5rem) 0 0;
   color: var(--text-dim);
+  font-size: clamp(0.98rem, 1.25vw, 1.15rem);
+  line-height: 1.6;
+  text-wrap: pretty;
 }
+.hero__lede strong { color: var(--text); font-weight: 600; }
 
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-top: 2rem;
+  margin-top: 1.75rem;
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.72rem 1.35rem;
+  gap: 0.55rem;
+  padding: 0.8rem 1.5rem;
   border-radius: 999px;
   border: 1px solid transparent;
+  font-family: var(--font-text);
   font-weight: 600;
   font-size: 0.98rem;
+  letter-spacing: -0.012em;
   cursor: pointer;
+  transition: transform 0.18s var(--ease), background 0.18s var(--ease),
+              box-shadow 0.18s var(--ease), border-color 0.18s var(--ease);
 }
 .btn:hover { text-decoration: none; }
+.btn:active { transform: translateY(1px) scale(0.99); }
+.btn svg { flex: none; }
 
 .btn-primary {
-  background: var(--accent);
-  color: #fff;
+  background: linear-gradient(180deg, var(--royal-hi), var(--royal));
+  color: #120a26;
+  font-weight: 650;
+  box-shadow: 0 10px 26px -10px rgba(124, 77, 255, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
-.btn-primary:hover { background: var(--accent-strong); }
+.btn-primary:hover {
+  background: linear-gradient(180deg, #b9a3ff, #8d63ff);
+  box-shadow: 0 16px 34px -12px rgba(124, 77, 255, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+}
+.btn-primary:active { transform: translateY(1px) scale(0.99); }
 
 .btn-ghost {
   background: transparent;
   border-color: var(--line);
   color: var(--text);
 }
-.btn-ghost:hover { border-color: var(--accent); }
+.btn-ghost:hover { border-color: var(--royal); background: rgba(124, 77, 255, 0.1); }
 
-/* ------------------------------------------------------------------ keys */
+/* Secondary "Hear it" action: a text button, like the reference. */
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.8rem 0.4rem;
+  border: 0;
+  background: none;
+  color: var(--lavender);
+  font: 500 1.02rem var(--font-text);
+  cursor: pointer;
+  transition: color 0.18s var(--ease);
+}
+.text-button:hover { color: #fff; text-decoration: underline; }
+.text-button[aria-pressed="true"] { color: var(--warm-white); }
 
-.keys {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
-  gap: 0.6rem;
-  margin-top: 3.5rem;
+.hero__note {
+  margin: 1.1rem 0 0;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}
+.hero__note .mono { color: var(--text-dim); }
+
+/* --------------------------------------------------------------- stage 3D */
+
+.stage {
+  position: relative;
+  margin-top: clamp(1.75rem, 4vh, 3rem);
+  --cap-w: clamp(16px, 3.5vw, 52px);
+  --cap-h: calc(var(--cap-w) * 0.94);
+  --cap-gap: clamp(2.5px, 0.38vw, 6px);
+  perspective: 1500px;
+  perspective-origin: 50% 22%;
 }
 
-.key {
+.stage__glow {
+  position: absolute;
+  left: 50%;
+  bottom: -6%;
+  width: min(1200px, 130vw);
+  aspect-ratio: 2.6 / 1;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(124, 77, 255, 0.34), transparent 72%);
+  filter: blur(22px);
+  pointer-events: none;
+}
+
+.kb {
   position: relative;
-  aspect-ratio: 1;
+  margin: 0 auto;
+  width: max-content;
+  max-width: 100%;
+  transform-style: preserve-3d;
+  transform: rotateX(53deg) rotateZ(-6deg);
+  transform-origin: 50% 0%;
+  transition: transform 0.6s var(--ease);
+}
+.kb:hover { transform: rotateX(50deg) rotateZ(-5deg) translateY(-4px); }
+
+/* The aluminium case. */
+.kb__case {
+  position: relative;
+  padding: clamp(10px, 1.4vw, 20px);
+  border-radius: 18px;
+  background: linear-gradient(168deg, #2e2740 0%, #1d1830 42%, #14101f 100%);
+  box-shadow:
+    0 70px 90px -40px rgba(0, 0, 0, 0.95),
+    0 0 0 1px rgba(255, 255, 255, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transform-style: preserve-3d;
+}
+/* Front lip, so the case reads as a solid object rather than a flat sheet. */
+.kb__case::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -14px;
+  height: 16px;
+  border-radius: 0 0 16px 16px;
+  background: linear-gradient(180deg, #171326, #0c0913);
+  transform: translateZ(-14px) rotateX(90deg);
+  transform-origin: top center;
+}
+
+/* The recessed plate the switches sit in, with a backlight glow. */
+.kb__plate {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cap-gap);
+  padding: var(--cap-gap);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #0b0812, #120e1d);
+  box-shadow: inset 0 0 0 1px rgba(124, 77, 255, 0.18), inset 0 6px 22px rgba(0, 0, 0, 0.85);
+}
+
+/* Every row is the same width: a 15-unit main block, a half-unit gap, and a
+   3-unit cluster on the right. The function row spreads its keys across the
+   main block, the way a real board spaces them. */
+.kb__row { display: flex; align-items: flex-start; gap: var(--cap-gap); }
+.kb__group { display: flex; gap: var(--cap-gap); }
+.kb__group--left { width: calc(15 * var(--cap-w) + 14 * var(--cap-gap)); }
+.kb__group--right { width: calc(3 * var(--cap-w) + 2 * var(--cap-gap)); }
+.kb__group--spread { justify-content: space-between; }
+.kb__group--centre { justify-content: center; }
+
+/* --------------------------------------------------------------- keycaps */
+
+.cap {
+  position: relative;
+  flex: none;
+  width: calc(var(--u) * var(--cap-w) + (var(--u) - 1) * var(--cap-gap));
+  height: var(--cap-h);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The cap body: what you see from the side. */
+.cap__body {
+  position: absolute;
+  inset: 0;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #241e38, #120e1d);
+  box-shadow: 0 5px 9px rgba(0, 0, 0, 0.6);
+}
+
+/* The cap top: raised, lighter, with the legend. */
+.cap__face {
+  position: absolute;
+  inset: 2px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: linear-gradient(180deg, #1d1d27, #14141b);
-  color: var(--text-dim);
-  font: 600 0.95rem var(--mono);
-  cursor: pointer;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #41395d 0%, #2e2745 52%, #241e38 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.45),
+    0 0 12px rgba(124, 77, 255, 0.16);
+  transform: translateZ(13px);
+  transition: transform 0.07s ease, box-shadow 0.07s ease, background 0.12s ease;
+}
+
+.cap__legend {
+  color: #cdc6e0;
+  font: 600 clamp(0.5rem, 0.72vw, 0.66rem)/1 var(--font-text);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   user-select: none;
-  transition: transform 60ms ease, border-color 120ms ease, color 120ms ease;
+  -webkit-user-select: none;
+  pointer-events: none;
 }
-.key:hover { border-color: var(--accent); color: var(--text); }
-.key.down {
-  transform: translateY(3px);
-  border-color: var(--accent);
-  color: var(--accent-strong);
-  background: linear-gradient(180deg, #241b3c, #171426);
+
+.cap--accent .cap__face {
+  background: linear-gradient(180deg, #7b57e8 0%, #5b32d6 55%, #472599 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.4),
+    0 0 18px rgba(124, 77, 255, 0.45);
 }
-.key small {
-  position: absolute;
-  bottom: 6px;
-  font-size: 0.6rem;
+.cap--accent .cap__legend { color: #efe8ff; }
+
+/* The space bar and the wider caps read as a different profile. */
+.cap--wide .cap__face { border-radius: 5px; }
+
+.cap:hover .cap__face { background: linear-gradient(180deg, #4a4169 0%, #332b4c 55%, #281f3c 100%); }
+.cap--accent:hover .cap__face { background: linear-gradient(180deg, #8b66ff 0%, #6739e2 55%, #5228b4 100%); }
+
+.cap.is-down .cap__face {
+  transform: translateZ(5px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 0 22px rgba(124, 77, 255, 0.55);
+}
+.cap.is-down .cap__legend { color: #fff; }
+
+/* A key the selected pack does not cover stays visible but dim. */
+.cap.is-missing { opacity: 0.42; }
+
+/* ------------------------------------------------------- stage foot row */
+
+/* The board is laid out flat and then tipped back in 3D, so the space it
+   gives up vertically is dead space. Pull the row under it back up. */
+.stage__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem 1rem;
+  margin-top: calc(-1.4 * var(--cap-h));
+  font-size: 0.88rem;
   color: var(--text-faint);
+  text-align: center;
 }
+.stage__bar strong { color: var(--text-dim); font-weight: 600; }
 
-.hint {
-  margin-top: 1rem;
-  color: var(--text-faint);
-  font-size: 0.9rem;
+.stage__status {
+  flex-basis: 100%;
+  color: #f0a0a8;
+  font-size: 0.82rem;
+  opacity: 0;
+  transition: opacity 0.2s var(--ease);
 }
+.stage__status.is-shown { opacity: 1; }
 
-/* -------------------------------------------------------------- sections */
+.stage__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.95rem 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--plum-850);
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
+.stage__pick .keycap { width: 20px; height: 20px; border-radius: 4px; }
+.stage__pick:hover { border-color: var(--royal); color: var(--text); text-decoration: none; }
 
-section { padding: clamp(3rem, 7vw, 5rem) 0; border-top: 1px solid var(--line); }
+/* ------------------------------------------------------------- sections */
+
+section { padding: clamp(3.5rem, 8vw, 6rem) 0; border-top: 1px solid var(--line-soft); }
 
 h2 {
   margin: 0;
-  font-size: clamp(1.6rem, 3.5vw, 2.2rem);
-  letter-spacing: -0.02em;
+  font-family: var(--font-heading);
+  font-size: clamp(1.9rem, 4vw, 3rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+}
+h2 .lit {
+  background: linear-gradient(100deg, var(--warm-white), var(--lavender) 55%, var(--royal-hi));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-.section-lede { max-width: 62ch; margin: 0.75rem 0 0; color: var(--text-dim); }
+.section-lede { max-width: 62ch; margin: 0.9rem 0 0; color: var(--text-dim); font-size: 1.05rem; text-wrap: pretty; }
+
+.lede { max-width: 46ch; margin: 1.25rem 0 0; font-size: 1.15rem; color: var(--text-dim); }
 
 .grid {
   display: grid;
@@ -217,52 +528,271 @@ h2 {
 
 .card {
   padding: 1.4rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: var(--bg-card);
+  background: var(--tile);
+  transition: border-color 0.2s var(--ease), transform 0.2s var(--ease);
 }
-.card h3 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+.card:hover { border-color: var(--line); transform: translateY(-2px); }
+.card h3 { margin: 0 0 0.5rem; font-family: var(--font-heading); font-size: 1.05rem; font-weight: 650; letter-spacing: -0.02em; }
 .card p { margin: 0; color: var(--text-dim); font-size: 0.95rem; }
 .card .tag {
   display: inline-block;
   margin-bottom: 0.7rem;
-  color: var(--accent-strong);
-  font: 600 0.75rem var(--mono);
-  letter-spacing: 0.08em;
+  color: var(--royal-hi);
+  font: 500 0.72rem/1.4 var(--font-mono);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 /* ---------------------------------------------------------- sound packs */
 
-.packs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 2.25rem; }
+.packs { position: relative; }
+.packs::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: min(900px, 100%);
+  height: 1px;
+  transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, rgba(124, 77, 255, 0.55), transparent);
+}
 
-.pack {
-  padding: 1.4rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-card);
+.packs__head { max-width: 68ch; }
+.packs__head .eyebrow {
+  background: linear-gradient(100deg, var(--warm-white), var(--lavender));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  border: 0;
+  padding: 0;
+  font: 600 0.95rem/1.3 var(--font-heading);
+  letter-spacing: 0.01em;
 }
-.pack-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.pack h3 { margin: 0; font-size: 1.05rem; }
-.pack .badge {
-  padding: 0.15rem 0.55rem;
+
+/* Centered segmented filter, one pill. */
+.segmented {
+  display: flex;
+  gap: 2px;
+  width: fit-content;
+  margin: 2.75rem auto 1.75rem;
+  padding: 3px;
   border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  font: 600 0.72rem var(--mono);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
-.pack p { margin: 0.6rem 0 1rem; color: var(--text-dim); font-size: 0.92rem; }
-.pack button {
-  width: 100%;
-  padding: 0.55rem;
-  border: 1px solid var(--line);
-  border-radius: 9px;
+.segmented button {
+  padding: 0.5rem 1.15rem;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
-  color: var(--text);
-  font: 600 0.9rem inherit;
+  color: var(--text-dim);
+  font: 500 0.88rem/1.4 var(--font-text);
   cursor: pointer;
+  transition: background 0.22s var(--ease), color 0.22s var(--ease);
 }
-.pack button:hover { border-color: var(--accent); color: var(--accent-strong); }
+.segmented button:hover { color: var(--text); }
+.segmented button[aria-pressed="true"] {
+  background: var(--warm-white);
+  color: #14101f;
+  font-weight: 600;
+}
+
+/* Exactly three columns on desktop, two on a tablet, one on a phone. */
+.pack-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pack-grid:empty { display: none; }
+
+.pack-card { min-width: 0; }
+
+.pack-card__button {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  height: 100%;
+  padding: 18px 18px 18px 20px;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--tile);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s var(--ease), box-shadow 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.pack-card__button:hover {
+  background: var(--tile-2);
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.22);
+  transform: translateY(-2px);
+}
+.pack-card__button:active { transform: translateY(0); }
+
+/* The selected pack carries a restrained accent, not a loud one. */
+.pack-card.is-selected .pack-card__button {
+  background: linear-gradient(180deg, rgba(124, 77, 255, 0.14), rgba(124, 77, 255, 0.04)), var(--tile);
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.42);
+}
+.pack-card.is-playing .pack-card__button {
+  background: linear-gradient(180deg, rgba(124, 77, 255, 0.22), rgba(124, 77, 255, 0.06)), var(--tile-2);
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.65);
+}
+
+/* The little keycap that stands in for the switch. */
+.keycap {
+  --cap: #8e8e93;
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--cap), white 12%) 0%, color-mix(in oklab, var(--cap), black 24%) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -3px 0 color-mix(in oklab, var(--cap), black 40%), 0 6px 14px rgba(0, 0, 0, 0.45);
+}
+.keycap::after {
+  content: "";
+  position: absolute;
+  inset: 5px 6px 8px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--cap), white 26%), color-mix(in oklab, var(--cap), white 4%));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+.keycap--small { width: 20px; height: 20px; border-radius: 4px; }
+.keycap--small::after { inset: 2px 2.5px 3.5px; border-radius: 3.5px; }
+
+.pack-card__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.pack-card__name {
+  color: var(--text);
+  font-size: 1.02rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pack-card__meta {
+  color: var(--text-dim);
+  font-size: 0.79rem;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pack-card__meta .sep { color: var(--text-faint); margin: 0 0.35rem; }
+
+.chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #b6b0c8;
+  font: 600 0.68rem/1.5 var(--font-text);
+  letter-spacing: 0.02em;
+  vertical-align: 2px;
+}
+
+.pack-card__play {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text);
+  transition: background 0.2s var(--ease), color 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.pack-card__play svg { width: 18px; height: 18px; fill: currentColor; }
+.pack-card__play .icon-stop { display: none; }
+.pack-card__button:hover .pack-card__play { background: rgba(255, 255, 255, 0.16); }
+.pack-card.is-playing .pack-card__play {
+  background: linear-gradient(180deg, var(--royal-hi), var(--royal));
+  color: #120a26;
+  transform: scale(1.06);
+}
+.pack-card.is-playing .pack-card__play .icon-play { display: none; }
+.pack-card.is-playing .pack-card__play .icon-stop { display: block; }
+
+/* A pack whose preview could not be loaded still lists, but says so. */
+.pack-card.is-unavailable .pack-card__play { opacity: 0.35; }
+
+.packs-count {
+  margin: 1.5rem 0 0;
+  color: var(--text-faint);
+  font: 0.82rem/1.5 var(--font-mono);
+  text-align: center;
+}
+
+.packs-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 2.5rem 1.5rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.packs__note {
+  max-width: 76ch;
+  margin: 2.5rem auto 0;
+  color: var(--text-faint);
+  font-size: 0.9rem;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+/* Provenance: the real licence and source behind every pack. */
+.provenance {
+  max-width: 76ch;
+  margin: 2rem auto 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--plum-850);
+}
+.provenance > summary {
+  padding: 0.9rem 1.1rem;
+  color: var(--text-dim);
+  font: 500 0.9rem/1.4 var(--font-mono);
+  cursor: pointer;
+  list-style: none;
+}
+.provenance > summary::-webkit-details-marker { display: none; }
+.provenance > summary::after { content: " +"; color: var(--royal-hi); }
+.provenance[open] > summary::after { content: " −"; }
+.provenance > summary:hover { color: var(--text); }
+.provenance__list {
+  margin: 0;
+  padding: 0 1.1rem 1.1rem;
+  list-style: none;
+  columns: 2;
+  column-gap: 2rem;
+}
+.provenance__list li {
+  display: grid;
+  gap: 1px;
+  padding: 0.4rem 0;
+  break-inside: avoid;
+  font: 0.78rem/1.5 var(--font-mono);
+  color: var(--text-faint);
+}
+.provenance__list b { color: var(--text-dim); font-weight: 500; }
 
 /* --------------------------------------------------------------- install */
 
@@ -270,12 +800,14 @@ h2 {
 
 .step {
   display: grid;
-  grid-template-columns: 2.5rem 1fr;
+  /* minmax(0, …) rather than 1fr: the long clone URL inside <pre> has a
+     min-content width that would otherwise widen the page on a phone. */
+  grid-template-columns: 2.5rem minmax(0, 1fr);
   gap: 1rem;
   padding: 1.25rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: var(--bg-card);
+  background: var(--tile);
 }
 .step::before {
   counter-increment: step;
@@ -285,22 +817,23 @@ h2 {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  background: rgba(124, 77, 255, 0.16);
+  color: var(--lavender);
   font-weight: 700;
 }
-.step h3 { margin: 0.35rem 0 0.4rem; font-size: 1rem; }
+.step h3 { margin: 0.35rem 0 0.4rem; font-family: var(--font-heading); font-size: 1rem; font-weight: 650; }
 .step p { margin: 0; color: var(--text-dim); font-size: 0.94rem; }
 
 pre {
   margin: 0.75rem 0 0;
   padding: 0.9rem 1rem;
+  max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-soft);
   border-radius: 10px;
-  background: #0a0a0f;
-  color: #d7d7e2;
-  font: 0.88rem/1.6 var(--mono);
+  background: var(--plum-950);
+  color: #d7d0e6;
+  font: 0.88rem/1.6 var(--font-mono);
 }
 pre .c { color: var(--text-faint); }
 
@@ -309,29 +842,29 @@ pre .c { color: var(--text-faint); }
 .table-scroll { overflow-x: auto; margin-top: 2rem; }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
-th, td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--line); }
-th { color: var(--text-faint); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; }
-tbody tr:hover { background: var(--bg-raised); }
+th, td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--line-soft); }
+th { color: var(--text-faint); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; }
+tbody tr:hover { background: var(--plum-850); }
 td .mono { color: var(--text-dim); }
 
 .btn-sm {
   display: inline-block;
   padding: 0.4rem 0.9rem;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
+  background: linear-gradient(180deg, var(--royal-hi), var(--royal));
+  color: #120a26;
   font-size: 0.85rem;
   font-weight: 600;
 }
-.btn-sm:hover { background: var(--accent-strong); text-decoration: none; }
+.btn-sm:hover { text-decoration: none; filter: brightness(1.08); }
 
 /* ---------------------------------------------------------------- notes */
 
 .note {
   margin-top: 1.5rem;
   padding: 1rem 1.2rem;
-  border-left: 3px solid var(--accent);
-  background: var(--bg-raised);
+  border-left: 3px solid var(--royal);
+  background: var(--plum-850);
   border-radius: 0 10px 10px 0;
   color: var(--text-dim);
   font-size: 0.94rem;
@@ -342,7 +875,7 @@ td .mono { color: var(--text-dim); }
 /* ---------------------------------------------------------------- footer */
 
 .site-footer {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--line-soft);
   padding: 2.5rem 0 3.5rem;
   color: var(--text-faint);
   font-size: 0.9rem;
@@ -351,8 +884,102 @@ td .mono { color: var(--text-dim); }
 .site-footer nav { display: flex; gap: 1.25rem; flex-wrap: wrap; }
 .site-footer a { color: var(--text-dim); }
 
-@media (max-width: 640px) {
-  .nav { gap: 0.9rem; font-size: 0.88rem; }
-  .step { grid-template-columns: 1fr; }
+/* -------------------------------------------------------------- reveals */
+
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity 0.7s var(--ease), transform 0.7s var(--ease);
+}
+[data-reveal].is-visible { opacity: 1; transform: none; }
+
+/* --------------------------------------------------------- responsive */
+
+/* Three columns on a desktop, two once a card would start losing its text,
+   one on a phone. */
+@media (max-width: 1100px) {
+  .pack-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 860px) {
+  .provenance__list { columns: 1; }
+}
+
+@media (max-width: 620px) {
+  .nav { display: none; }
+  .site-header .nav-cta { display: inline-flex; }
+}
+
+@media (max-width: 760px) {
+  .pack-grid { grid-template-columns: minmax(0, 1fr); }
+  .segmented { margin-top: 2rem; }
+  .segmented button { padding: 0.45rem 0.9rem; font-size: 0.84rem; }
+  .step { grid-template-columns: minmax(0, 1fr); }
   .step::before { display: none; }
+}
+
+/* The board is recomposed rather than squeezed: it turns flatter, the caps
+   shrink, and the case is allowed to bleed off the sides. */
+@media (max-width: 720px) {
+  .stage { perspective: 1100px; }
+  .kb { transform: rotateX(46deg) rotateZ(-4deg); }
+  .kb:hover { transform: rotateX(44deg) rotateZ(-4deg); }
+  .hero__title { font-size: clamp(2.7rem, 13.5vw, 4.5rem); }
+}
+
+@media (max-width: 560px) {
+  .kb { transform: rotateX(40deg) rotateZ(-3deg); }
+  .kb:hover { transform: rotateX(38deg) rotateZ(-3deg); }
+  .hero__title { font-size: clamp(2.5rem, 14vw, 3.6rem); }
+  .actions { width: 100%; flex-direction: column; align-items: stretch; }
+  .actions .btn, .actions .text-button { justify-content: center; }
+
+  /* A narrow card cannot afford a 44px cap and a 34px play button and
+     still have room for the pack's name. */
+  .pack-card__button { gap: 11px; padding: 14px 13px 14px 15px; }
+  .pack-card .keycap { width: 36px; height: 36px; border-radius: 9px; }
+  .pack-card .keycap::after { inset: 4px 5px 6px; border-radius: 6px; }
+  .pack-card__play { width: 30px; height: 30px; }
+  .pack-card__play svg { width: 15px; height: 15px; }
+  .pack-card__name { font-size: 0.98rem; }
+  .pack-card__meta { font-size: 0.76rem; }
+}
+
+/* Below this the longest pack names no longer fit on one line, so they wrap
+   instead of being cut, and the optional parts of the meta line step aside.
+   Every card keeps the same height. */
+@media (max-width: 340px) {
+  .pack-card__button { min-height: 92px; }
+  .pack-card__name {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .pack-card__meta .meta__part--optional,
+  .pack-card__meta .sep--optional { display: none; }
+}
+
+/* Keyboard-only use must be as clear as pointer use. */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+.cap:focus-visible {
+  outline: 2px solid var(--royal-hi);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  [data-reveal] { opacity: 1; transform: none; }
+  .hero__title .word > span { transform: none; }  .cap.is-down .cap__face { transform: translateZ(13px); }
+  .kb { transform: rotateX(50deg) rotateZ(-5deg); }
 }

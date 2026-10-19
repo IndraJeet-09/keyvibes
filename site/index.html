@@ -6,6 +6,9 @@
 <title>KeyVibes — mechanical keyboard sounds for Linux</title>
 <meta name="description" content="KeyVibes plays a mechanical keyboard sound on every key press. evdev to PipeWire, no root, no keylogging, no input injection.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Sans:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
@@ -14,7 +17,7 @@
   <div class="wrap">
     <a class="brand" href="index.html">
       <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
-        <rect x="2" y="6" width="28" height="22" rx="5" fill="#8b5cf6"/>
+        <rect x="2" y="6" width="28" height="22" rx="5" fill="#7c4dff"/>
         <rect x="6" y="10" width="20" height="9" rx="3" fill="#0d0d12" opacity=".55"/>
         <rect x="10" y="22" width="12" height="3" rx="1.5" fill="#0d0d12" opacity=".4"/>
       </svg>
@@ -26,37 +29,70 @@
       <a href="#install">Install</a>
       <a href="download.html">Download</a>
     </nav>
+    <a class="btn btn-primary nav-cta" href="download.html">Download</a>
   </div>
 </header>
 
 <main>
   <section class="hero" style="border-top:0">
-    <div class="wrap">
-      <span class="eyebrow">Linux · evdev → PipeWire · free and open source</span>
-      <h1>Hear your keyboard<br>the way you wish it sounded.</h1>
-      <p class="lede">
-        KeyVibes plays a mechanical switch sound on every key press, straight
-        from the kernel's evdev interface to your speakers. No root, no
-        keylogger, no input injection — one background process and a sound pack.
-      </p>
-      <div class="actions">
-        <a class="btn btn-primary" href="download.html">Download for Linux</a>
-        <a class="btn btn-ghost" href="https://github.com/IndraJeet-09/keyvibes" rel="noopener">Source on GitHub</a>
+    <div class="wrap hero__copy">
+      <div class="hero__badges">
+        <span class="eyebrow">Linux · evdev → PipeWire</span>
+        <span class="eyebrow eyebrow-accent" id="version-badge">v0.1.1</span>
       </div>
 
-      <div class="keys" id="keys" aria-label="Try it: click a key to hear it">
-        <button class="key" data-note="60">Q<small>60</small></button>
-        <button class="key" data-note="62">W<small>62</small></button>
-        <button class="key" data-note="64">E<small>64</small></button>
-        <button class="key" data-note="65">R<small>65</small></button>
-        <button class="key" data-note="67">T<small>67</small></button>
-        <button class="key" data-note="69">Y<small>69</small></button>
-        <button class="key" data-note="71">U<small>71</small></button>
-        <button class="key" data-note="72">I<small>72</small></button>
-        <button class="key" data-note="74">O<small>74</small></button>
-        <button class="key" data-note="76">P<small>76</small></button>
+      <h1 class="hero__title" id="hero-title">
+        <span class="word" style="--delay:.05s"><span>Click.</span></span>
+        <span class="word" style="--delay:.14s"><span>Clack.</span></span>
+        <br>
+        <span class="word lit" style="--delay:.24s"><span>Create.</span></span>
+      </h1>
+
+      <p class="hero__lede">
+        KeyVibes plays a mechanical switch sound on every key press — straight
+        from the kernel's evdev interface to your speakers.
+        <strong>No root, no keylogger, no input injection.</strong>
+      </p>
+
+      <div class="actions">
+        <a class="btn btn-primary" href="download.html">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/>
+          </svg>
+          Download for Linux
+        </a>
+        <button class="text-button" type="button" id="hero-hear" aria-pressed="false">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <circle cx="12" cy="12" r="9.25"/><path d="M10.2 8.6v6.8l5.4-3.4z" fill="currentColor" stroke="none"/>
+          </svg>
+          <span id="hero-hear-label">Hear it</span>
+        </button>
       </div>
-      <p class="hint">A rough preview — the real thing is a recorded or synthesized pack with two clips per key, plus release sounds.</p>
+
+      <p class="hero__note">
+        Free and open source · MIT OR Apache-2.0
+      </p>
+    </div>
+
+    <div class="stage">
+      <div class="stage__glow" aria-hidden="true"></div>
+      <div class="kb" id="keyboard" role="group" aria-label="Keyboard preview — press a key to hear the selected sound pack">
+        <div class="kb__case">
+          <div class="kb__plate" id="kb-plate"></div>
+        </div>
+      </div>
+      <noscript>
+        <p class="hero__note">The interactive keyboard needs JavaScript. The sound packs below do too.</p>
+      </noscript>
+
+      <div class="stage__bar">
+        <a class="stage__pick" href="#packs" id="stage-pick">
+          <span class="keycap keycap--small" id="stage-pick-cap" aria-hidden="true"></span>
+          <span id="stage-pick-name">Loading the catalog…</span>
+        </a>
+        <span>Click a key — or type — to hear <strong>its own recorded clips</strong>.</span>
+        <span class="stage__status" id="preview-status" role="status" aria-live="polite"></span>
+      </div>
     </div>
   </section>
 
@@ -113,41 +149,55 @@
     </div>
   </section>
 
-  <section id="packs">
+  <section id="packs" class="packs">
     <div class="wrap">
-      <h2>Sound packs</h2>
-      <p class="section-lede">
-        A pack is a directory with a manifest and a WAV per key. Three
-        synthesized packs ship with KeyVibes; upstream packs drop into the
-        same folder.
+      <div class="packs__head">
+        <p class="eyebrow" data-reveal>Sound packs</p>
+        <h2 data-reveal>Pick your switch.</h2>
+        <p class="section-lede" data-reveal>
+          Real switch recordings, from the crisp click of Cherry MX Blue to the
+          deep thock of Topre.
+          <strong>Every pack below is read from the pack files themselves</strong> —
+          its switch family, how many of the 104 physical keys it covers, and
+          whether it records release sounds. Press play for a burst of actual
+          typing, cut from that pack's own clips.
+        </p>
+      </div>
+    </div>
+
+    <div class="wrap wrap--wide">
+      <div class="segmented" role="group" aria-label="Filter sound packs" data-reveal>
+        <button type="button" data-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-filter="linear" aria-pressed="false">Linear</button>
+        <button type="button" data-filter="tactile" aria-pressed="false">Tactile</button>
+        <button type="button" data-filter="clicky" aria-pressed="false">Clicky</button>
+      </div>
+
+      <ul class="pack-grid" id="pack-grid">
+        <li class="packs-empty">Loading the sound packs…</li>
+      </ul>
+      <noscript>
+        <p class="packs-empty">
+          The pack catalog is read from <code>site/packs.json</code>, which the
+          page fetches with JavaScript. Generate it with
+          <code>cargo xtask site</code>, which also writes the preview audio
+          beside it.
+        </p>
+      </noscript>
+
+      <p class="packs-count" id="packs-count" aria-live="polite">Loading packs…</p>
+
+      <details class="provenance">
+        <summary>Recording provenance and licences</summary>
+        <ul class="provenance__list" id="provenance-list"></ul>
+      </details>
+
+      <p class="packs__note">
+        A preview is a three-to-four-second burst of real typing, assembled from
+        that pack's own keypress clips and its own key-release sounds. Nothing
+        is synthesized in the browser, and a key the pack does not cover stays
+        silent rather than borrowing another key's sound.
       </p>
-
-      <div class="packs">
-        <div class="pack">
-          <div class="pack-head"><h3>Default</h3><span class="badge">synth</span></div>
-          <p>Modeled linear-switch press for all 104 keys, two variants per
-          key. The pack KeyVibes starts with.</p>
-          <button data-press="0">Hear a press</button>
-        </div>
-        <div class="pack">
-          <div class="pack-head"><h3>Holy Panda</h3><span class="badge">synth</span></div>
-          <p>A tactile bump with a rounded bottom-out — the clicky-adjacent
-          crowd's reference switch.</p>
-          <button data-press="1">Hear a press</button>
-        </div>
-        <div class="pack">
-          <div class="pack-head"><h3>Buckling Spring</h3><span class="badge">upstream</span></div>
-          <p>The Model M ring: a metallic buckling snap, recorded rather than
-          modeled.</p>
-          <button data-press="2">Hear a press</button>
-        </div>
-      </div>
-
-      <div class="note">
-        Preview audio on this page is synthesized in the browser and is only a
-        taste. The real packs ship with release clips, per-key variation, and
-        optional spatialization.
-      </div>
     </div>
   </section>
 
@@ -163,7 +213,7 @@
             <p>Debian/Ubuntu, Fedora/openSUSE, Arch, or a portable archive —
             <a href="download.html">pick your flavour</a>.</p>
 <pre><span class="c"># Debian / Ubuntu</span>
-sudo apt install ./keyvibes_0.1.0_amd64.deb</pre>
+sudo apt install ./<span data-file="deb">keyvibes_0.1.1_amd64.deb</span></pre>
           </div>
         </div>
         <div class="step">

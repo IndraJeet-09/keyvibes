@@ -19,7 +19,6 @@ Thumbs.db
 # the `.kvpack` archives built from them are generated and stay out.
 /assets/soundpacks/*
 !/assets/soundpacks/.gitkeep
-!/assets/soundpacks/default-src/
 !/assets/soundpacks/upstream-src/
 
 # Generated
@@ -27,6 +26,11 @@ Thumbs.db
 /dist/stage/
 /dist/out/
 /site/releases.json
+/site/packs.json
+/site/assets/audio/
+
+# AI tooling
+.kilo/
 
 __pycache__/
 *.pyc

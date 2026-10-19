@@ -41,9 +41,9 @@ fn fixture() -> &'static Fixture {
         std::fs::create_dir_all(&both).unwrap();
         std::fs::create_dir_all(&only_partial).unwrap();
 
-        // The pack this repository ships: all 104 keys, two variants each.
+        // A shipped pack: all 104 keys, two variants each.
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../assets/soundpacks/default-src/pack.toml");
+            .join("../../assets/soundpacks/upstream-src/alpaca/pack.toml");
         let full = both.join("Full.kvpack");
         let report = build_from_manifest(&manifest, &full, |_| {})
             .expect("the committed manifest must build");
@@ -155,7 +155,7 @@ fn pack_inspect_reports_full_coverage_for_the_shipped_pack() {
         "a complete pack must not list missing keys. Output: {flat}"
     );
     assert!(
-        flat.contains("source: keyvibes-synth-switch-v1"),
+        flat.contains("source: rustyvibes-v2/kbsim/alpaca"),
         "provenance must be visible on inspect. Output: {flat}"
     );
 }

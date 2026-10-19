@@ -46,9 +46,9 @@ pub fn run() -> Result<()> {
         if !found.is_empty() && !names.is_empty() && unique {
             format!("{} pack(s): {}", names.len(), names.join(", "))
         } else if names.is_empty() {
-            "no packs are installed - build some with `keyvibes pack build` \
-             (see docs/soundpacks.md for the upstream loop and \
-             assets/soundpacks/default-src for the synthesized demos)"
+            "no packs are installed - build them with `cargo xtask packs` \
+             (see docs/soundpacks.md for the upstream sources and \
+             assets/soundpacks/upstream-src for the converted manifests)"
                 .to_string()
         } else {
             format!(
@@ -243,13 +243,13 @@ pub fn run() -> Result<()> {
     // --- 4. the global flag parses on either side of the subcommand ---------
     // Pure parsing: the name need not be installed for clap to accept it.
     for before in [
-        vec!["keyvibes", "--pack", "Linear", "run", "--simulate"],
-        vec!["keyvibes", "run", "--pack", "Linear", "--simulate"],
-        vec!["keyvibes", "stress", "--pack", "Linear", "--duration", "1"],
+        vec!["keyvibes", "--pack", "Alpaca", "run", "--simulate"],
+        vec!["keyvibes", "run", "--pack", "Alpaca", "--simulate"],
+        vec!["keyvibes", "stress", "--pack", "Alpaca", "--duration", "1"],
     ] {
         let label = before.join(" ");
         match Cli::try_parse_from(&before) {
-            Ok(cli) if cli.sound_pack.as_deref() == Some("Linear") => {
+            Ok(cli) if cli.sound_pack.as_deref() == Some("Alpaca") => {
                 report.pass("`--pack` is accepted wherever the user types it", label);
             }
             Ok(cli) => report.fail(
@@ -349,25 +349,30 @@ fn renders(path: &Path) -> Result<String, String> {
     ))
 }
 
-/// The commands that produce the synthesized demo packs from the committed
-/// sources.
+/// The commands that produce the shipped packs from the committed sources.
 ///
-/// The upstream packs are built the same way from
-/// `assets/soundpacks/upstream-src/<id>/pack.toml`; see docs/soundpacks.md.
+/// Every pack is built from `assets/soundpacks/upstream-src/<id>/pack.toml`;
+/// see docs/soundpacks.md.
 #[cfg(test)]
 fn build_commands() -> Vec<String> {
     // The output path is quoted whole, so a pack whose name contains a space
     // is copy-pasteable as printed.
     [
-        ("pack.toml", "assets/soundpacks/Default.kvpack"),
-        ("holy-panda.toml", "\"assets/soundpacks/Holy Panda.kvpack\""),
-        ("linear.toml", "assets/soundpacks/Linear.kvpack"),
+        ("alpaca", "assets/soundpacks/Alpaca.kvpack"),
+        (
+            "holy-panda",
+            "\"assets/soundpacks/Holy Panda (kbsim).kvpack\"",
+        ),
+        (
+            "cherry-mx-red-abs",
+            "\"assets/soundpacks/Cherry MX Red ABS.kvpack\"",
+        ),
     ]
     .iter()
-    .map(|(manifest, output)| {
+    .map(|(dir, output)| {
         format!(
             "cargo run --quiet --bin keyvibes -- pack build \
-             assets/soundpacks/default-src/{manifest} -o {output}"
+             assets/soundpacks/upstream-src/{dir}/pack.toml -o {output}"
         )
     })
     .collect()
@@ -382,21 +387,30 @@ mod tests {
         let commands = build_commands();
         assert_eq!(commands.len(), 3);
         let joined = commands.join("\n");
-        for output in ["Default.kvpack", "Holy Panda.kvpack", "Linear.kvpack"] {
+        for output in [
+            "Alpaca.kvpack",
+            "Holy Panda (kbsim).kvpack",
+            "Cherry MX Red ABS.kvpack",
+        ] {
             assert!(
                 joined.contains(output),
                 "no build command produces {output}:\n{joined}"
             );
         }
-        assert!(
-            joined.contains("-o \"assets/soundpacks/Holy Panda.kvpack\""),
-            "the path with a space must be quoted whole:\n{joined}"
-        );
+        for spacey in [
+            "assets/soundpacks/Holy Panda (kbsim).kvpack",
+            "assets/soundpacks/Cherry MX Red ABS.kvpack",
+        ] {
+            assert!(
+                joined.contains(&format!("-o \"{spacey}\"")),
+                "the path with a space must be quoted whole:\n{joined}"
+            );
+        }
         // The line continuation must not swallow the separating space.
         assert_eq!(
             commands[0],
             "cargo run --quiet --bin keyvibes -- pack build \
-             assets/soundpacks/default-src/pack.toml -o assets/soundpacks/Default.kvpack"
+             assets/soundpacks/upstream-src/alpaca/pack.toml -o assets/soundpacks/Alpaca.kvpack"
         );
     }
 }

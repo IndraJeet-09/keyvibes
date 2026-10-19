@@ -1133,6 +1133,7 @@ dependencies = [
  "gtk4",
  "ksni",
  "kv-control",
+ "kv-core",
  "libadwaita",
  "libc",
 ]
@@ -2377,8 +2378,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "hound",
  "kv-core",
  "kv-pack",
+ "serde_json",
 ]
 
 [[package]]

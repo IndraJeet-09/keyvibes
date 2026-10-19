@@ -283,8 +283,8 @@ pub fn run() -> Result<()> {
     );
 
     // --- 7. doctor exits 0 when nothing is missing -------------------------
-    let (code, text) = invoke(&exe, &["doctor", "--pack", "Default"], &[], Some(&root));
-    outputs.push(("doctor --pack Default".to_string(), code, text.clone()));
+    let (code, text) = invoke(&exe, &["doctor", "--pack", "Alpaca"], &[], Some(&root));
+    outputs.push(("doctor --pack Alpaca".to_string(), code, text.clone()));
     let (healthy_exit, detail) = match code {
         0 => (
             Status::Pass,

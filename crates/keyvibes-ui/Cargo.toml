@@ -14,6 +14,10 @@ path = "src/main.rs"
 
 [dependencies]
 kv-control.workspace = true
+# The shipped defaults (volume, the three variation toggles, release
+# sounds) come from here, so "Restore sound defaults" cannot drift from
+# what a fresh install does.
+kv-core.workspace = true
 anyhow.workspace = true
 
 # POSIX signal numbers for the shutdown handlers; `libc` is already in the

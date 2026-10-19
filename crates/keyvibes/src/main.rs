@@ -201,8 +201,8 @@ fn build_pack(manifest: &Path, output: &Path, verbose: bool) -> Result<()> {
     if !manifest.is_file() {
         anyhow::bail!(
             "no manifest at {}\n  a pack manifest is a TOML file - start from \
-             `assets/soundpacks/default-src/pack.toml` and pass its path as the \
-             first argument",
+             `assets/soundpacks/upstream-src/alpaca/pack.toml` and pass its path \
+             as the first argument",
             manifest.display()
         );
     }
@@ -1057,6 +1057,3 @@ fn input_test(seconds: u64, verbose: bool) -> Result<()> {
     println!("Devices tracked: {}", backend.device_count());
     Ok(())
 }
-
-#[cfg(test)]
-mod production_pack_test;

@@ -30,14 +30,168 @@ pub const APP_ID: &str = "org.keyvibes.KeyVibes";
 /// `keyvibes input-test --verbose` mode would, and that is not the engine).
 const LOG_LIMIT: usize = 40;
 
-/// The keys a preview plays, one at a time, in the order a typist would
-/// hit them. Names must match `PhysicalKey`'s debug spelling exactly, the
-/// same list the engine falls back to for `keys: None`.
-const PREVIEW_KEYS: [&str; 8] = ["A", "S", "D", "F", "J", "K", "L", "Enter"];
+/// The letters a preview may press, spelled exactly as `PhysicalKey`
+/// debug-prints them - that is the spelling the engine's `parse_key_name`
+/// matches.
+const PREVIEW_LETTERS: [&str; 26] = [
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
+    "T", "U", "V", "W", "X", "Y", "Z",
+];
 
-/// Delay between preview keys. Eight keys over this gap stretches the demo
-/// to about three and a half seconds instead of one simultaneous burst.
-const PREVIEW_GAP_MS: u64 = 450;
+/// The digit row a preview may press, in the same `PhysicalKey` spelling.
+const PREVIEW_DIGITS: [&str; 10] = [
+    "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8", "Digit9",
+    "Digit0",
+];
+
+/// The keys that end a word in a typed run. A schedule emits exactly one
+/// per word, so two word-enders can never land back to back.
+const PREVIEW_TERMINATORS: [&str; 4] = ["Space", "Comma", "Period", "Enter"];
+
+/// How long one preview types for, in milliseconds: 3.4s of scheduled
+/// waiting, so every schedule lands inside the promised 3-4 second window.
+const PREVIEW_DURATION_MS: u64 = 3_400;
+
+/// The shortest and longest base gap between two preview keys. Together
+/// with the word-end breath below, the average gap stays within
+/// `[67, 121]`ms - a rate of 8-15 keys per second, whatever the seed.
+const PREVIEW_GAP_MIN_MS: u64 = 67;
+const PREVIEW_GAP_MAX_MS: u64 = 105;
+
+/// Extra pause after a word ends, in milliseconds: a typist rests between
+/// words, and it is what keeps the run reading as typing rather than a metronome.
+const PREVIEW_BREATH_MIN_MS: u64 = 40;
+const PREVIEW_BREATH_MAX_MS: u64 = 80;
+
+/// Letters per word before its terminator, four to six, which caps the
+/// terminator share at one key in five - the structural half of the rate
+/// guarantee.
+const PREVIEW_WORD_MIN: usize = 4;
+const PREVIEW_WORD_MAX: usize = 6;
+
+/// Chance, in percent, that a word is a digit run instead of letters.
+const PREVIEW_DIGITS_PERCENT: u64 = 15;
+
+/// Chance, in percent, that the gap after a word-end key gets the breath.
+const PREVIEW_BREATH_PERCENT: u64 = 50;
+
+/// One scheduled press: wait `delay_ms`, then play `key`.
+///
+/// `Copy` so a step can be handed into a timeout callback and read again
+/// when arming the next one.
+#[derive(Clone, Copy)]
+struct PreviewStep {
+    /// Milliseconds to wait before this key plays.
+    delay_ms: u64,
+    /// The key to play, as `PhysicalKey` debug-prints it.
+    key: &'static str,
+}
+
+/// The preview's schedule generator: xorshift64*, seeded from the wall
+/// clock (or a fixed value in tests).
+///
+/// The schedule only decides which of the pack's own clips plays next -
+/// never what a user typed - so a small non-cryptographic generator is
+/// exactly what it needs.
+struct PreviewRng(u64);
+
+impl PreviewRng {
+    /// Seeds from the clock, with the low bit forced so the state can
+    /// never be zero, where xorshift would stay forever. Tests build their
+    /// own fixed state through the tuple field instead.
+    fn from_entropy() -> Self {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos() as u64)
+            .unwrap_or(1);
+        Self(nanos | 1)
+    }
+
+    /// A value in `0..bound`, which callers always pass non-zero.
+    fn below(&mut self, bound: u64) -> u64 {
+        let mut x = self.0;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.0 = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D) % bound
+    }
+}
+
+/// Builds one preview: words of letters (sometimes a digit run), each
+/// ended by exactly one terminator, timed to type for 3.4 seconds at
+/// 8-15 keys per second.
+///
+/// Every gap - including the first - is at least `PREVIEW_GAP_MIN_MS`, so
+/// the rate is exactly `1000 / average gap`: structurally inside 8-15 a
+/// second regardless of seed, because a breath can only follow a word-end
+/// key and words end at most once in five keys.
+fn preview_schedule(rng: &mut PreviewRng) -> Vec<PreviewStep> {
+    let mut steps: Vec<PreviewStep> = Vec::new();
+    let mut total: u64 = 0;
+    let mut previous: Option<&'static str> = None;
+    'words: loop {
+        let span = PREVIEW_WORD_MAX - PREVIEW_WORD_MIN + 1;
+        let letters = PREVIEW_WORD_MIN + rng.below(span as u64) as usize;
+        let pool: &[&'static str] = if rng.below(100) < PREVIEW_DIGITS_PERCENT {
+            &PREVIEW_DIGITS
+        } else {
+            &PREVIEW_LETTERS
+        };
+        for _ in 0..letters {
+            if total >= PREVIEW_DURATION_MS {
+                break 'words;
+            }
+            let letter = pick_key(rng, pool, previous);
+            total += push_step(&mut steps, rng, letter, previous);
+            previous = Some(letter);
+        }
+        if total >= PREVIEW_DURATION_MS {
+            break 'words;
+        }
+        let end = PREVIEW_TERMINATORS[rng.below(PREVIEW_TERMINATORS.len() as u64) as usize];
+        total += push_step(&mut steps, rng, end, previous);
+        previous = Some(end);
+    }
+    steps
+}
+
+/// Picks from `pool` without repeating the previous key, so no press ever
+/// plays the same clip twice in a row.
+fn pick_key(
+    rng: &mut PreviewRng,
+    pool: &[&'static str],
+    previous: Option<&'static str>,
+) -> &'static str {
+    loop {
+        let candidate = pool[rng.below(pool.len() as u64) as usize];
+        if previous != Some(candidate) {
+            return candidate;
+        }
+    }
+}
+
+/// Appends one press and returns the gap it waited.
+///
+/// The breath is decided from `previous`, the key *before* this one: it
+/// stretches the pause that follows a word-ender, never the key itself.
+fn push_step(
+    steps: &mut Vec<PreviewStep>,
+    rng: &mut PreviewRng,
+    key: &'static str,
+    previous: Option<&'static str>,
+) -> u64 {
+    let base = PREVIEW_GAP_MIN_MS + rng.below(PREVIEW_GAP_MAX_MS - PREVIEW_GAP_MIN_MS + 1);
+    let after_word = previous.is_some_and(|prior| PREVIEW_TERMINATORS.contains(&prior));
+    let breath = if after_word && rng.below(100) < PREVIEW_BREATH_PERCENT {
+        PREVIEW_BREATH_MIN_MS + rng.below(PREVIEW_BREATH_MAX_MS - PREVIEW_BREATH_MIN_MS + 1)
+    } else {
+        0
+    };
+    let delay_ms = base + breath;
+    steps.push(PreviewStep { delay_ms, key });
+    delay_ms
+}
 
 /// How tall the Sounds page may ask to be before it scrolls.
 const PACK_LIST_MAX: i32 = 340;
@@ -50,6 +204,14 @@ const PAGE_MAX: i32 = 400;
 /// the window growing to fit every row.
 const DEFAULT_WIDTH: i32 = 760;
 const DEFAULT_HEIGHT: i32 = 520;
+
+/// The System tab inside the view stack.
+///
+/// A const rather than an inline literal because
+/// `every_stage_name_that_is_selected_is_also_registered` reads any quoted
+/// `set_visible_child_name` as a *stage* switch; this one selects a page
+/// within the stack, whose name is registered by `add_titled` instead.
+const SYSTEM_PAGE: &str = "system";
 
 thread_local! {
     /// One `App` per process. The UI is single-instance by application id,
@@ -189,6 +351,12 @@ struct App {
     stage: gtk::Stack,
     error_page: adw::StatusPage,
 
+    /// The engine's conditions that need the user - no readable keyboard, a
+    /// stream that errored, presses the active pack had no clip for - shown
+    /// above whichever page is open.
+    alert: gtk::Box,
+    alert_label: gtk::Label,
+
     // Sounds page.
     header_switch: gtk::Switch,
     search: gtk::SearchEntry,
@@ -236,6 +404,17 @@ struct App {
     /// Set while the UI writes a widget's state from a snapshot, so the
     /// resulting signal does not bounce straight back as a request.
     suppress: Cell<bool>,
+    /// Whether the event listener holds a live connection: false until the
+    /// first `Connected`, false again the moment the engine goes away.
+    /// `session` outlives a dead engine, so a preview paced against it
+    /// would raise one error toast per key.
+    connected: Cell<bool>,
+    /// The pack the user asked for while the engine has not confirmed it.
+    /// A state push scheduled before the switch lands still names the old
+    /// pack; honouring it would flip the row back and then forward again -
+    /// the visible flick when loading a pack. Held until the snapshot
+    /// matches (or the request fails).
+    pending_pack: RefCell<Option<String>>,
     /// The in-flight spaced preview, so a new one replaces the old.
     preview_timer: RefCell<Option<glib::SourceId>>,
 }
@@ -270,56 +449,99 @@ impl App {
         }
     }
 
-    /// Asks the engine to load a pack by name.
+    /// Loads a pack by name. The row flips immediately: waiting for the
+    /// round trip is what made selection feel laggy. The engine's own
+    /// snapshot is authoritative and overwrites the mark the moment it
+    /// arrives, so a rejected switch is corrected rather than left
+    /// optimistic forever.
     ///
-    /// The row flips immediately: waiting for the round trip is what made
-    /// selection feel laggy. The engine's own snapshot is authoritative and
-    /// overwrites the mark the moment it arrives, so a rejected switch is
-    /// corrected rather than left optimistic forever.
+    /// The request carries the pack's path, not its name: a path resolves
+    /// in one filesystem check, while a name makes the engine open every
+    /// installed pack to find its match - that scan was the slow,
+    /// glitchy pause between one sound and the next.
     fn select_pack(&self, name: &str) {
         if self.session.borrow().is_none() {
             self.toast("The engine is not ready yet.");
             return;
         }
+        // A pack switch cancels the running preview: its remaining keys
+        // belong to the pack being left.
+        self.stop_preview();
+        *self.pending_pack.borrow_mut() = Some(name.to_string());
         self.apply_active(Some(name));
-        self.post(Request::SetPack {
-            selector: name.to_string(),
-        });
-        self.toast(&format!("Switching to {name}…"));
+        let selector = self
+            .state
+            .borrow()
+            .as_ref()
+            .and_then(|state| state.packs.iter().find(|pack| pack.name == name))
+            .map(|pack| pack.path.clone())
+            .unwrap_or_else(|| name.to_string());
+        self.post(Request::SetPack { selector });
     }
 
-    /// Plays a spaced typing sequence from a pack, about three seconds.
-    fn start_preview(self: &Rc<Self>, pack: &str) {
+    /// Plays a paced typing sequence from a pack for about three and a
+    /// half seconds: a fresh random schedule of the pack's own clips, one
+    /// key per engine request.
+    ///
+    /// The pack is addressed by its path, so the engine resolves it in one
+    /// filesystem check instead of opening every installed pack to match a
+    /// name. Starting a preview always cancels the one in flight.
+    fn start_preview(self: &Rc<Self>, pack: &PackInfo) {
+        let ready = self.session.borrow().is_some() && self.connected.get();
+        if !ready {
+            self.toast("The engine is not ready yet.");
+            return;
+        }
         self.stop_preview();
-        self.post_preview_key(pack, 0);
+        let schedule = Rc::new(preview_schedule(&mut PreviewRng::from_entropy()));
+        self.arm_preview(pack.path.clone(), schedule, 0);
+    }
+
+    /// Arms the timeout for `index`, which waits out that step's gap,
+    /// plays its key, then arms the next one - one-shot chaining, so a
+    /// finished run leaves no source behind.
+    ///
+    /// `preview_timer` always tracks the step still waiting: arming the
+    /// next step overwrites the current id, whose callback then removes
+    /// itself by breaking. Cancelling (`stop_preview`) therefore only ever
+    /// touches the one timeout that would fire next.
+    fn arm_preview(
+        self: &Rc<Self>,
+        selector: String,
+        schedule: Rc<Vec<PreviewStep>>,
+        index: usize,
+    ) {
+        let Some(step) = schedule.get(index).copied() else {
+            // The run is complete; the callback that armed this call is
+            // about to break itself, so the source needs no remove().
+            *self.preview_timer.borrow_mut() = None;
+            return;
+        };
         let app = Rc::downgrade(self);
-        let tick = Cell::new(1usize);
-        let playing = pack.to_string();
-        let source = glib::timeout_add_local(
-            std::time::Duration::from_millis(PREVIEW_GAP_MS),
-            move || {
+        let source =
+            glib::timeout_add_local(std::time::Duration::from_millis(step.delay_ms), move || {
                 let Some(app) = app.upgrade() else {
                     return glib::ControlFlow::Break;
                 };
-                let index = tick.get();
-                if index >= PREVIEW_KEYS.len() {
-                    app.stop_preview();
+                let ready = app.session.borrow().is_some() && app.connected.get();
+                if !ready {
+                    // The engine is gone: stop quietly instead of queueing
+                    // requests that would each raise an error toast.
+                    *app.preview_timer.borrow_mut() = None;
                     return glib::ControlFlow::Break;
                 }
-                tick.set(index + 1);
-                app.post_preview_key(&playing, index);
-                glib::ControlFlow::Continue
-            },
-        );
+                app.post_preview_key(&selector, step.key);
+                app.arm_preview(selector.clone(), Rc::clone(&schedule), index + 1);
+                glib::ControlFlow::Break
+            });
         *self.preview_timer.borrow_mut() = Some(source);
-        self.toast(&format!("Playing {pack}…"));
     }
 
-    /// Queues a single key of the demo sequence.
-    fn post_preview_key(&self, pack: &str, index: usize) {
+    /// Queues one key of the preview, addressed by the pack's path.
+    fn post_preview_key(&self, selector: &str, key: &str) {
         self.post(Request::Preview {
-            pack: Some(pack.to_string()),
-            keys: Some(vec![PREVIEW_KEYS[index].to_string()]),
+            pack: Some(selector.to_string()),
+            keys: Some(vec![key.to_string()]),
         });
     }
 
@@ -369,6 +591,7 @@ impl App {
         match event {
             UiEvent::Ready(session) => {
                 *self.session.borrow_mut() = Some(*session);
+                self.connected.set(true);
                 self.stage.set_visible_child_name("main");
                 self.refresh_autostart();
                 self.request_diagnostics();
@@ -386,10 +609,15 @@ impl App {
                 self.render_diagnostics();
             }
             UiEvent::Log(line) => self.push_log(&line),
-            UiEvent::Connected => {}
+            UiEvent::Connected => self.connected.set(true),
             UiEvent::Disconnected => {
                 // Expected during our own shutdown; only worth a word when
-                // the engine was still meant to be running.
+                // the engine was still meant to be running. Either way an
+                // in-flight preview ends here: its later keys would only
+                // queue errors against a socket nothing answers.
+                self.connected.set(false);
+                self.pending_pack.borrow_mut().take();
+                self.stop_preview();
                 if self.session.borrow().is_some() {
                     self.toast("The engine stopped. KeyVibes will reconnect if it comes back.");
                 }
@@ -397,6 +625,7 @@ impl App {
             UiEvent::ActionFailed(message) => {
                 self.toast(&message);
                 // Undo the optimistic mark: the engine did not confirm it.
+                self.pending_pack.borrow_mut().take();
                 let active = self.active_from_state();
                 self.apply_active(active.as_deref());
             }
@@ -499,6 +728,10 @@ impl App {
         self.rebuild_packs(&state);
         self.refresh_autostart();
         self.refresh_tray(&state);
+
+        let summary = issue_summary(&state.issues);
+        self.alert_label.set_text(&summary);
+        self.alert.set_visible(!summary.is_empty());
     }
 
     /// Rebuilds the pack list only when what it would show has changed, so
@@ -509,7 +742,21 @@ impl App {
     fn rebuild_packs(self: &Rc<Self>, state: &State) {
         let query = self.query.borrow().clone();
         let visible = packs::filter(&state.packs, &query);
-        let active_name = state.pack.as_ref().map(|pack| pack.name.as_str());
+        // Confirm the optimistic choice the moment the engine agrees, and
+        // until then show it over whatever a stale snapshot still says.
+        {
+            let mut pending = self.pending_pack.borrow_mut();
+            if pending
+                .as_ref()
+                .is_some_and(|wanted| state.pack.as_ref().is_some_and(|pack| &pack.name == wanted))
+            {
+                *pending = None;
+            }
+        }
+        let pending = self.pending_pack.borrow().clone();
+        let active_name = pending
+            .as_deref()
+            .or_else(|| state.pack.as_ref().map(|pack| pack.name.as_str()));
 
         let signature = list_signature(&visible);
         if *self.pack_signature.borrow() != signature {
@@ -610,12 +857,12 @@ impl App {
         preview.set_valign(gtk::Align::Center);
         {
             let app = Rc::downgrade(self);
-            let name = pack.name.clone();
+            let pack = pack.clone();
             preview.connect_clicked(move |_| {
                 let Some(app) = app.upgrade() else {
                     return;
                 };
-                app.start_preview(&name);
+                app.start_preview(&pack);
             });
         }
         row.add_suffix(&preview);
@@ -1288,11 +1535,26 @@ fn build(application: &adw::Application) -> Rc<App> {
     let (release_row, release) =
         switch_row("Release sounds", "Play a clip on key-up (version-2 packs)");
 
+    // One action for the whole Sound group: every value the group holds back
+    // to what a fresh install ships. The pack and the master switch are left
+    // alone - both are choices, not tuning.
+    let restore_row = adw::ActionRow::new();
+    restore_row.set_title("Restore sound defaults");
+    restore_row.set_subtitle(
+        "Volume, pitch, gain, spatial audio and release sounds, back to the shipped settings",
+    );
+    let restore_button = gtk::Button::with_label("Restore");
+    restore_button.add_css_class("pill");
+    restore_button.set_valign(gtk::Align::Center);
+    restore_row.add_suffix(&restore_button);
+    restore_row.set_activatable_widget(Some(&restore_button));
+
     let sound_group = group("Sound", None);
     sound_group.add(&volume_row);
     for row in [&pitch_row, &gain_row, &spatial_row, &release_row] {
         sound_group.add(row);
     }
+    sound_group.add(&restore_row);
 
     let audio = gtk::Box::new(gtk::Orientation::Vertical, 12);
     audio.set_vexpand(true);
@@ -1433,11 +1695,31 @@ fn build(application: &adw::Application) -> Rc<App> {
     let overlay = adw::ToastOverlay::new();
     overlay.set_child(Some(&stage));
 
+    // Status line for what the engine cannot do on its own. Hidden whenever
+    // `State.issues` is empty, so a healthy session shows no chrome at all.
+    let alert = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    alert.add_css_class("kv-alert");
+    alert.set_visible(false);
+    let alert_icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
+    let alert_label = gtk::Label::new(None);
+    alert_label.set_xalign(0.0);
+    alert_label.set_hexpand(true);
+    alert_label.set_wrap(true);
+    alert_label.set_max_width_chars(72);
+    let alert_button = gtk::Button::with_label("Details");
+    alert_button.add_css_class("flat");
+    alert_button.set_valign(gtk::Align::Center);
+    alert_button.set_tooltip_text(Some("Open the System page: diagnostics, logs and the fix"));
+    alert.append(&alert_icon);
+    alert.append(&alert_label);
+    alert.append(&alert_button);
+
     // `AdwApplicationWindow` owns its layout: the GtkWindow titlebar and
     // child hooks are both rejected at runtime. Content goes through the
     // libadwaita property instead.
     let chrome = gtk::Box::new(gtk::Orientation::Vertical, 0);
     chrome.append(&header);
+    chrome.append(&alert);
     chrome.append(&overlay);
     window.set_content(Some(&chrome));
 
@@ -1451,6 +1733,8 @@ fn build(application: &adw::Application) -> Rc<App> {
         stack,
         stage,
         error_page,
+        alert,
+        alert_label,
         header_switch,
         search,
         chips,
@@ -1489,6 +1773,8 @@ fn build(application: &adw::Application) -> Rc<App> {
         event_tx: event_tx.clone(),
         socket,
         suppress: Cell::new(false),
+        connected: Cell::new(false),
+        pending_pack: RefCell::new(None),
         preview_timer: RefCell::new(None),
     });
 
@@ -1514,24 +1800,45 @@ fn build(application: &adw::Application) -> Rc<App> {
         });
     }
 
-    app.connect_signals();
-
-    // Picking a page in the header expands the window to fill the screen.
-    // Only the user's own click does this: programmatic switches hold the
-    // `suppress` flag, so restoring a page never drags the window around.
+    // The alert's action jumps to the page that explains it.
     {
-        let view_stack = app.stack.clone();
         let app = Rc::downgrade(&app);
-        view_stack.connect_notify_local(Some("visible-child-name"), move |_, _| {
+        alert_button.connect_clicked(move |_| {
             let Some(app) = app.upgrade() else {
                 return;
             };
-            if app.suppress.get() {
-                return;
-            }
-            app.window.maximize();
+            app.stack.set_visible_child_name(SYSTEM_PAGE);
+            app.request_diagnostics();
         });
     }
+
+    // Restore the Sound group's shipped defaults, one request per value the
+    // protocol has; the engine applies them and saves the config itself.
+    {
+        let app = Rc::downgrade(&app);
+        restore_button.connect_clicked(move |_| {
+            let Some(app) = app.upgrade() else {
+                return;
+            };
+            let defaults = kv_core::Settings::default();
+            app.post(Request::SetVolume {
+                volume: defaults.volume,
+            });
+            app.post(Request::SetVariation {
+                pitch: Some(defaults.pitch_variation_enabled),
+                gain: Some(defaults.gain_variation_enabled),
+            });
+            app.post(Request::SetSpatial {
+                enabled: defaults.spatial_audio_enabled,
+            });
+            app.post(Request::SetReleaseSounds {
+                enabled: defaults.release_sounds_enabled,
+            });
+            app.toast("Sound settings restored to their defaults.");
+        });
+    }
+
+    app.connect_signals();
 
     // ------------------------------------------------------ background
     let _ = std::thread::Builder::new()
@@ -1630,9 +1937,70 @@ fn list_signature(visible: &[&PackInfo]) -> String {
     signature
 }
 
+/// The status line built from [`State::issues`]: one capitalised line per
+/// issue, or an empty string when the engine has nothing to report (which
+/// is what hides the banner).
+///
+/// The engine phrases these for a terminal - lowercase, imperative, ending
+/// in a command to run. The banner is prose inside a window, so only the
+/// first letter changes; nothing is reworded, because the wording is what
+/// the diagnostics repeat.
+fn issue_summary(issues: &[String]) -> String {
+    issues
+        .iter()
+        .map(|issue| issue.trim())
+        .filter(|issue| !issue.is_empty())
+        .map(capitalise)
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+fn capitalise(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A fixed-seed generator, with the low bit forced the way production
+    /// seeding forces it, so a test run replays exactly.
+    fn seeded(seed: u64) -> PreviewRng {
+        PreviewRng(seed | 1)
+    }
+
+    /// A healthy engine produces no banner at all.
+    #[test]
+    fn no_issues_means_no_status_line() {
+        assert_eq!(issue_summary(&[]), "");
+        assert_eq!(issue_summary(&["   ".to_string(), String::new()]), "");
+    }
+
+    /// Each issue keeps the engine's wording and gets its own line, with
+    /// only the first letter capitalised so it reads as prose.
+    #[test]
+    fn issues_become_one_capitalised_line_each() {
+        let issues = vec![
+            "no keyboard is readable; add yourself to the 'input' group and re-login".to_string(),
+            "2 press(es) had no clip in the active pack and stayed silent".to_string(),
+        ];
+        let summary = issue_summary(&issues);
+        let lines: Vec<&str> = summary.lines().collect();
+        assert_eq!(lines.len(), 2, "issues must not run together: {summary}");
+        assert_eq!(
+            lines[0],
+            "No keyboard is readable; add yourself to the 'input' group and re-login"
+        );
+        assert_eq!(
+            lines[1],
+            "2 press(es) had no clip in the active pack and stayed silent"
+        );
+        assert_eq!(issue_summary(&issues), summary, "the banner must be stable");
+    }
 
     /// Every name the stage is asked to show must have been added to it,
     /// otherwise GtkStack warns and shows nothing.
@@ -1704,6 +2072,80 @@ mod tests {
             source.contains(&format!("window.set_{}", "content")),
             "the window must place its layout through set_content"
         );
+    }
+
+    /// Every schedule the generator can produce keeps the preview's
+    /// promise: three to four seconds, 8-15 keys a second, with no gap a
+    /// real typist could not produce.
+    #[test]
+    fn preview_schedules_hold_the_typing_envelope() {
+        for seed in [1u64, 2, 7, 42, 0xDEADBEEF, u64::MAX] {
+            let steps = preview_schedule(&mut seeded(seed));
+            let total: u64 = steps.iter().map(|step| step.delay_ms).sum();
+            let count = steps.len();
+            let rate = count as f64 * 1_000.0 / total as f64;
+            assert!(
+                (3_400..=3_585).contains(&total),
+                "seed {seed}: the run lasts {total}ms"
+            );
+            assert!(
+                (8.0..=15.0).contains(&rate),
+                "seed {seed}: the run types at {rate} keys a second"
+            );
+            assert!((28..=53).contains(&count), "seed {seed}: {count} keys");
+            for (position, step) in steps.iter().enumerate() {
+                // The upper bound is the longest base gap plus the breath.
+                assert!(
+                    (PREVIEW_GAP_MIN_MS..=185).contains(&step.delay_ms),
+                    "seed {seed}: gap {position} waits {}ms",
+                    step.delay_ms
+                );
+            }
+        }
+    }
+
+    /// Every key stays inside the pool the packs are known to cover, no
+    /// key ever plays twice in a row, and a word-ender is always followed
+    /// by a key from a word.
+    #[test]
+    fn preview_schedules_never_stutter_or_double_end_words() {
+        for seed in [1u64, 3, 9, 77, 123_456] {
+            let steps = preview_schedule(&mut seeded(seed));
+            for (position, step) in steps.iter().enumerate() {
+                let known = PREVIEW_LETTERS.contains(&step.key)
+                    || PREVIEW_DIGITS.contains(&step.key)
+                    || PREVIEW_TERMINATORS.contains(&step.key);
+                assert!(known, "seed {seed}: step {position} leaves the pool");
+            }
+            let ends_word = |key: &str| PREVIEW_TERMINATORS.contains(&key);
+            for (position, pair) in steps.windows(2).enumerate() {
+                assert!(
+                    pair[0].key != pair[1].key,
+                    "seed {seed}: the key at {position} plays twice in a row"
+                );
+                assert!(
+                    !(ends_word(pair[0].key) && ends_word(pair[1].key)),
+                    "seed {seed}: two word-enders meet at {position}"
+                );
+            }
+        }
+    }
+
+    /// The schedule is generated, not canned: another seed types another
+    /// run, and the same seed replays the same one.
+    #[test]
+    fn preview_schedules_depend_on_their_seed() {
+        let keys = |seed: u64| -> Vec<&'static str> {
+            preview_schedule(&mut seeded(seed))
+                .iter()
+                .map(|step| step.key)
+                .collect()
+        };
+        let first = keys(1);
+        let replayed = first == keys(1);
+        assert!(replayed, "one seed must replay its own run");
+        let different = first != keys(2);
+        assert!(different, "two seeds must not type the same run");
     }
 
     fn pack(name: &str, category: &str, synthesized: bool) -> PackInfo {

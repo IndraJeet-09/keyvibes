@@ -41,7 +41,6 @@ label.kv-badge.kv-demo {
     background-color: alpha(@warning_color, 0.18);
     color: @warning_color;
 }
-
 /* The pack the engine has loaded. */
 row.kv-active {
     background-color: @kv_accent_soft;
@@ -56,6 +55,14 @@ textview.kv-log {
 
 /* Keeps the peak meter from jumping around while it idles. */
 levelbar.kv-peak { min-height: 8px; }
+
+/* The engine's "this needs you" line, pinned under the header bar. */
+box.kv-alert {
+    background-color: alpha(@warning_color, 0.12);
+    border-bottom: 1px solid alpha(@warning_color, 0.30);
+    padding: 7px 14px;
+}
+box.kv-alert label { color: @warning_color; }
 "#;
 
 /// Installs the stylesheet for the default display.
@@ -100,6 +107,7 @@ mod tests {
             "kv-active",
             "kv-log",
             "kv-peak",
+            "kv-alert",
         ] {
             assert!(
                 CSS.contains(&format!(".{class}")),

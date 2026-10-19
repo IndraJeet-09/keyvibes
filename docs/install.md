@@ -63,7 +63,7 @@ No root, no install step, no files written outside your home directory. What
 the AppImage contains and what it deliberately does not:
 
 - **Contains:** the `keyvibes` engine, the client `libpipewire-0.3.so`, and
-  all 24 sound packs.
+  all 21 sound packs.
 - **Does not contain:** the GTK desktop app (`keyvibes-ui`), the systemd user
   unit, the udev rule, or the PipeWire *server*. PipeWire must already be
   running - it is part of every desktop session. Bundling GTK into an
@@ -240,13 +240,13 @@ List what is installed and choose one by name:
 
 ```bash
 keyvibes pack list
-keyvibes --pack "Holy Panda" run
+keyvibes --pack "Holy Panda (kbsim)" run
 ```
 
 Packs are not shipped pre-built in the repository; build them once with
-`cargo xtask packs` (all 24: the three synthesized demo packs and the 21
-upstream mechanical-switch packs), or install a package, which includes
-them. See [the README](../README.md#sound-packs) for pack provenance.
+`cargo xtask packs` (all 21 upstream mechanical-switch packs), or install a
+package, which includes them. See [the README](../README.md#sound-packs) for
+pack provenance.
 
 ## Configuration
 
@@ -273,7 +273,7 @@ A missing file is not an error: everything runs at its default. The keys are
 ```bash
 keyvibes                 # same as `keyvibes run`
 keyvibes run --duration 5    # stop after five seconds
-keyvibes --pack Linear run   # a different pack for this run
+keyvibes --pack Alpaca run   # a different pack for this run
 ```
 
 Or as a user service, so it starts with your session:

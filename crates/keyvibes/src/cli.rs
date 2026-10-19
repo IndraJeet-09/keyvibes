@@ -176,11 +176,11 @@ pub enum Command {
 
     /// Verify the imported upstream soundpacks, end to end
     ///
-    /// Ten checks over the packs converted from the pinned rustyvibes-v2
+    /// Nine checks over the packs converted from the pinned rustyvibes-v2
     /// checkout: the catalog, installation, provenance and license, honest
     /// coverage, no cross-key substitution, non-silent clips, release-sound
-    /// semantics, a byte-identical rebuild, the untouched synthesized packs,
-    /// and a simulated press/release run through the live engine. Steps that
+    /// semantics, a byte-identical rebuild, and a simulated press/release run
+    /// through the live engine. Steps that
     /// need a resource this host does not have are `NOT RUN`, never a pass.
     SoundpackAcceptanceTest,
 
@@ -224,9 +224,9 @@ pub enum Command {
 
     /// Prove a sound pack can be replaced while the stream keeps running
     ///
-    /// Runs a sustained load, swaps Holy Panda for Linear underneath it, and
-    /// verifies the stream never stopped, the input side switched at once,
-    /// and the retired pack is released only once it can no longer be
+    /// Runs a sustained load, swaps one installed pack for another underneath
+    /// it, and verifies the stream never stopped, the input side switched at
+    /// once, and the retired pack is released only once it can no longer be
     /// referenced. Reported as `NOT RUN` when no PipeWire session is
     /// reachable.
     PackSwitchTest,

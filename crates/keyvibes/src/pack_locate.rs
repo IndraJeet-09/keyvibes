@@ -167,7 +167,7 @@ pub fn resolve_from(
 ///   case-insensitively against the pack's own metadata, then against the
 ///   file stem.
 ///
-/// This is what makes `keyvibes --pack "Holy Panda"` work without the user
+/// This is what makes `keyvibes --pack "Holy Panda (kbsim)"` work without the user
 /// having to know where packs are installed.
 pub fn resolve_selector(selector: &str) -> Result<PathBuf> {
     let trimmed = selector.trim();
@@ -320,10 +320,10 @@ mod tests {
             "/home/me/.local/share/keyvibes/packs/fixtures/old.kvpack"
         )));
         assert!(!is_test_fixture(Path::new(
-            "/home/me/.local/share/keyvibes/packs/Default.kvpack"
+            "/home/me/.local/share/keyvibes/packs/Alpaca.kvpack"
         )));
         assert!(!is_test_fixture(Path::new(
-            "/repo/assets/soundpacks/Holy Panda.kvpack"
+            "/repo/assets/soundpacks/Topre.kvpack"
         )));
     }
 
@@ -331,18 +331,14 @@ mod tests {
     fn discovery_lists_installed_packs_and_skips_fixtures() {
         let dir = scratch(
             "discover",
-            &["Default.kvpack", "fixtures/golden.kvpack", "Golden.kvpack"],
+            &["Alpaca.kvpack", "fixtures/golden.kvpack", "Golden.kvpack"],
         );
         let found = discover_in(std::slice::from_ref(&dir));
         let names: Vec<String> = found
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(
-            names,
-            vec!["Default.kvpack".to_string()],
-            "found: {names:?}"
-        );
+        assert_eq!(names, vec!["Alpaca.kvpack".to_string()], "found: {names:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

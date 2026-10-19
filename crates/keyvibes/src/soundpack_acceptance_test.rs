@@ -2,16 +2,15 @@
 //!
 //! The imported upstream soundpacks, checked end to end in one pass. This is
 //! the command that answers "are the 21 rustyvibes-v2 packs actually here and
-//! actually right?" - ten checks over the catalog, the installed files, the
-//! metadata, the coverage, the audio, the release table, a rebuild, the
-//! untouched synthesized packs, and a simulated press/release run through the
-//! live engine.
+//! actually right?" - nine checks over the catalog, the installed files, the
+//! metadata, the coverage, the audio, the release table, a rebuild, and a
+//! simulated press/release run through the live engine.
 //!
 //! Checks are reported in this order:
 //!
 //! 1. Upstream catalog, 2. Installation, 3. Provenance and license,
 //! 4. Honest coverage, 5. No substitution, 6. Clip audio, 7. Release sounds,
-//! 8. Deterministic rebuild, 9. Synthesized packs, 10. End to end.
+//! 8. Deterministic rebuild, 9. End to end.
 //!
 //! A check that needs a resource this host does not have (the importer's
 //! `coverage.json`, PipeWire) reports `NOT RUN` with the reason. It is never
@@ -625,83 +624,7 @@ pub fn run() -> Result<()> {
         }
     }
 
-    // ------------------------------------------- 9. synthesized packs
-    {
-        let legacy: Vec<(PathBuf, KvPack)> = pack_locate::discover_unique()
-            .into_iter()
-            .filter_map(|path| match KvPack::open(&path) {
-                Ok(pack) if !pack.metadata().source.starts_with(UPSTREAM_PREFIX) => {
-                    Some((path, pack))
-                }
-                _ => None,
-            })
-            .collect();
-        if legacy.is_empty() {
-            report.not_run(
-                "Synthesized packs",
-                "the pre-existing synthesized packs are not installed, so \
-                 there is nothing to prove untouched",
-            );
-        } else {
-            let mut problems: Vec<String> = Vec::new();
-            for (path, pack) in &legacy {
-                let header = pack.header();
-                let name = pack.stats().name.clone();
-                if header.format_version != kv_pack::FORMAT_VERSION {
-                    problems.push(format!(
-                        "{name}: format version {} is not the version 1 these \
-                         packs were built as",
-                        header.format_version
-                    ));
-                }
-                if header.release_table_size != 0 || pack.has_release_sounds() {
-                    problems.push(format!(
-                        "{name}: a release table appeared in a pack that never \
-                         had one"
-                    ));
-                }
-                if pack.stats().keys == 0 || pack.stats().clips == 0 {
-                    problems.push(format!("{name}: lost its keys or clips"));
-                }
-                // The three packs the repository ships, with their recorded
-                // clip counts from before the format change.
-                let expected_clips = match name.as_str() {
-                    "Default" => Some(208),
-                    "Holy Panda" => Some(208),
-                    "Linear" => Some(104),
-                    _ => None,
-                };
-                if let Some(expected) = expected_clips {
-                    if pack.stats().clips != expected
-                        || pack.key_coverage() != PhysicalKey::COUNT as u32
-                    {
-                        problems.push(format!(
-                            "{name}: expected {expected} clips and full coverage, \
-                             found {} clips and {}/{} coverage",
-                            pack.stats().clips,
-                            pack.key_coverage(),
-                            PhysicalKey::COUNT
-                        ));
-                    }
-                }
-                let _ = path;
-            }
-            if problems.is_empty() {
-                report.pass(
-                    "Synthesized packs",
-                    format!(
-                        "{} pre-existing pack(s) still parse as version 1 with \
-                         zero release tables and intact contents",
-                        legacy.len()
-                    ),
-                );
-            } else {
-                report.fail("Synthesized packs", problems.join("; "));
-            }
-        }
-    }
-
-    // ------------------------------------------- 10. end to end
+    // ------------------------------------------- 9. end to end
     {
         // A pack with release sounds *and* a missing key proves both halves
         // of the contract in one simulated session.

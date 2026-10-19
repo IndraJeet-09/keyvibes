@@ -75,7 +75,7 @@ pub fn run() -> Result<()> {
     // --- 3. modify, save atomically ----------------------------------------
     let edited = Config {
         volume: 0.35,
-        pack: Some("Holy Panda".to_string()),
+        pack: Some("Alpaca".to_string()),
         output_device: Some("keyvibes-config-test".to_string()),
         ..Config::default()
     };

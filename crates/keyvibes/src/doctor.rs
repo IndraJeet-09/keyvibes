@@ -300,8 +300,8 @@ fn gather_packs(
         problems.push(Problem {
             what: "no sound pack is installed".to_string(),
             why: format!("searched {searched}"),
-            fix: "build one: `keyvibes pack build assets/soundpacks/default-src/pack.toml -o \
-                  assets/soundpacks/Default.kvpack`"
+            fix: "build one: `keyvibes pack build assets/soundpacks/upstream-src/alpaca/pack.toml \
+                  -o assets/soundpacks/Alpaca.kvpack`"
                 .to_string(),
             severity: Severity::Error,
         });

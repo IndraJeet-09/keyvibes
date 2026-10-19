@@ -74,13 +74,44 @@ jobs:
           libpipewire-0.3-dev \
           libgtk-4-dev \
           libadwaita-1-dev \
-          libudev-dev
+          libudev-dev \
+          libfuse2 \
+          zstd
+
+    - name: Install appimagetool
+      run: |
+        set -eu
+        curl -fsSL -o /tmp/appimagetool \
+          https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x /tmp/appimagetool
+        # The runner has no FUSE; extract the tool and run the inner binary.
+        cd /tmp && ./appimagetool --appimage-extract >/dev/null
+        sudo install -m755 /tmp/squashfs-root/AppRun /usr/local/bin/appimagetool
 
     - name: Build the artifacts
       run: cargo xtask dist all
 
     - name: Check the checksums
       run: cd dist/out && sha256sum --check SHA256SUMS
+
+    - name: Validate the packages
+      run: |
+        set -eu
+        echo "== deb contents =="
+        ar p dist/out/keyvibes_*_amd64.deb control.tar.gz | tar -tzf - | sort
+        echo "== deb data (top two levels) =="
+        ar p dist/out/keyvibes_*_amd64.deb data.tar.gz | tar -tzf - | grep -E '^\./usr/(bin|lib/udev|lib/systemd)' | sort
+        echo "== rpm =="
+        if command -v rpm >/dev/null 2>&1 && ls dist/out/*.rpm >/dev/null 2>&1; then
+          rpm -qlp dist/out/*.rpm | grep -E '/(bin/|udev|systemd|kvpack)' | head -40
+        else
+          echo "rpm tooling not present; spec-only artifact is fine"
+        fi
+        echo "== AppImage =="
+        test -f dist/out/KeyVibes-*-x86_64.AppImage
+        test -x dist/out/KeyVibes-*-x86_64.AppImage
+        echo "== releases.json parses =="
+        python3 -c "import json; d=json.load(open('dist/out/releases.json')); assert d['version']; assert len(d['artifacts']) >= 5; print('ok', len(d['artifacts']), 'artifacts')"
 
     - uses: actions/upload-artifact@v4
       with:
@@ -122,7 +153,9 @@ jobs:
     - name: Publish the release
       uses: softprops/action-gh-release@v2
       with:
+        body_path: RELEASE_NOTES.md
         files: |
+          dist/out/*.AppImage
           dist/out/*.deb
           dist/out/*.tar.gz
           dist/out/install.sh

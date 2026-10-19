@@ -130,10 +130,37 @@ checks both the `Cargo.toml` files and `cargo tree`.
 
 ## Installation
 
-### 1. Build
+### Option A: AppImage (recommended download)
+
+The [GitHub releases page](https://github.com/IndraJeet-09/keyvibes/releases)
+publishes a single self-contained `KeyVibes-<version>-x86_64.AppImage`. It
+contains the headless engine and all 24 sound packs; no install step, no root.
 
 ```bash
-git clone <repository>
+chmod +x KeyVibes-*-x86_64.AppImage
+./KeyVibes-*-x86_64.AppImage doctor     # is this machine ready?
+./KeyVibes-*-x86_64.AppImage run
+```
+
+The AppImage does **not** include the GTK desktop app (`keyvibes-ui`) - the
+engine and the UI have different packaging needs, and bundling GTK into an
+AppImage is not something this project will pretend to support. Use a distro
+package or `make install` if you want the UI. PipeWire must be running; the
+AppImage ships the client library, not the server. See
+[docs/install.md](docs/install.md#appimage) for details and limitations.
+
+### Option B: distro package or portable tarball
+
+Releases also ship a `.deb` (Debian/Ubuntu), an RPM spec, a `PKGBUILD`
+(Arch), and a portable `tar.gz` with an `install.sh`. The `.deb` and RPM
+include the engine, the UI, the packs, the udev rule, and maintainer scripts
+that reload udev on install. Full instructions, including upgrade and
+uninstall, are in [docs/install.md](docs/install.md).
+
+### Option C: build from source
+
+```bash
+git clone https://github.com/IndraJeet-09/keyvibes
 cd keyvibes
 cargo build --release
 ```
@@ -142,56 +169,24 @@ Rust 1.75 or newer. The PipeWire bindings compile a small C shim, so you need
 a C toolchain and the PipeWire headers: `libpipewire-0.3-dev` on
 Debian/Ubuntu, `pipewire-devel` on Fedora, `pipewire` on Arch.
 
-### 2. Grant keyboard access
-
-Reading `/dev/input/event*` needs permission - see
-[Permissions](#permissions). One-time, and it does not need to happen before
-you build.
-
-### 3. Build the sound packs
-
-The `.kvpack` files are generated, so a fresh clone ships only their sources.
-Build the three packs once:
+Then grant keyboard access (see [Permissions](#permissions) - one-time, and
+it does not need to happen before you build), build the sound packs, and
+install:
 
 ```bash
-cargo run --quiet --bin keyvibes -- pack build assets/soundpacks/default-src/pack.toml \
-    -o assets/soundpacks/Default.kvpack
-cargo run --quiet --bin keyvibes -- pack build assets/soundpacks/default-src/holy-panda.toml \
-    -o "assets/soundpacks/Holy Panda.kvpack"
-cargo run --quiet --bin keyvibes -- pack build assets/soundpacks/default-src/linear.toml \
-    -o assets/soundpacks/Linear.kvpack
+make install PREFIX="$HOME/.local"    # per-user, no root
+# or
+sudo make install PREFIX=/usr/local   # system-wide
 ```
 
-The 21 upstream mechanical-switch packs are built the same way from
-`assets/soundpacks/upstream-src/<id>/pack.toml` - see
-[docs/soundpacks.md](docs/soundpacks.md) for the loop and for how to re-run
-the importer.
-
-### 4. Install
-
-Per-user, no root:
-
-```bash
-make install PREFIX="$HOME/.local"
-```
-
-System-wide:
-
-```bash
-sudo make install PREFIX=/usr/local
-```
-
-That installs the binary, the packs, the docs, and a systemd user unit.
 `make uninstall` removes exactly what install added and leaves your
-configuration alone. `make help` lists the targets.
+configuration alone. `make help` lists the targets. Packaging into a staging
+directory: `make install DESTDIR=/tmp/stage PREFIX=/usr`. Build all packs
+with `cargo xtask packs`. Full detail - runtime dependencies, the systemd
+unit, the optional udev rule, and troubleshooting - is in
+[docs/install.md](docs/install.md).
 
-Packaging into a staging directory: `make install DESTDIR=/tmp/stage
-PREFIX=/usr`.
-
-Full detail - runtime dependencies, the systemd unit, the optional udev rule,
-and troubleshooting - is in [docs/install.md](docs/install.md).
-
-### 5. Check it
+### Check it
 
 ```bash
 keyvibes doctor
@@ -217,7 +212,8 @@ sudo usermod -aG input "$USER"
 Log out and back in, then confirm with `keyvibes doctor`.
 
 **Or a logind ACL grants your seat access** - no group membership, but only
-for a local session. The optional rule:
+for a local session. The optional rule matches keyboards only
+(`ID_INPUT_KEYBOARD`), not mice or other input:
 
 ```bash
 sudo install -Dm644 dist/keyvibes-udev.rules \
@@ -226,9 +222,10 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-Neither is needed at runtime: once the permission exists, everything else
-happens as a normal user. KeyVibes does not grab the device, does not grab
-the keyboard, and does not inject events - it observes only.
+Distro packages install this rule automatically. Neither option is needed at
+runtime: once the permission exists, everything else happens as a normal
+user. KeyVibes does not grab the device, does not grab the keyboard, and
+does not inject events - it observes only.
 
 More detail in [docs/linux-permissions.md](docs/linux-permissions.md).
 

@@ -35,9 +35,16 @@ SYSTEMD_USER_DIR ?= $(if $(filter $(HOME)/%,$(PREFIX)),$(DESTDIR)$(PREFIX)/share
 
 BIN    = target/release/keyvibes
 UIBIN  = target/release/keyvibes-ui
-DOCS   = README.md docs/install.md docs/environment.md
+DOCS   = README.md docs/install.md docs/environment.md THIRD_PARTY_NOTICES.md LICENSE-MIT LICENSE-APACHE
 DESKTOP = dist/keyvibes-ui.desktop
 ICON    = dist/keyvibes.svg
+UDEV_RULE = dist/keyvibes-udev.rules
+
+# udev looks in /etc/udev/rules.d (admin) and /usr/lib/udev/rules.d (packages).
+# A per-user PREFIX (~/.local) cannot contribute a rule that the system udev
+# will load, so we install one only for system prefixes and print the manual
+# copy step otherwise. DESTDIR is part of the path for staged packaging.
+UDEV_RULES_DIR ?= $(DESTDIR)$(PREFIX)/lib/udev/rules.d
 
 .PHONY: all build install uninstall help clean
 
@@ -89,6 +96,16 @@ install: build
 	install -d "$(DOCDIR)"
 	install -m644 $(DOCS) "$(DOCDIR)/"
 	@echo "  docs     $(DOCDIR)"
+	@# A system prefix gets a udev rule that udev will actually load. A
+	@# per-user prefix cannot contribute one, so print the copy step instead
+	@# rather than dropping a rule file where udev never looks.
+	@if [ "$(PREFIX)" = "/usr" ] || [ "$(PREFIX)" = "/usr/local" ]; then \
+		install -d "$(UDEV_RULES_DIR)"; \
+		install -m644 "$(UDEV_RULE)" "$(UDEV_RULES_DIR)/70-keyvibes-uaccess.rules"; \
+		echo "  udev     $(UDEV_RULES_DIR)/70-keyvibes-uaccess.rules"; \
+		echo "           (grants seat users read access to keyboards only;"; \
+		echo "            activate with: sudo udevadm control --reload-rules && sudo udevadm trigger)"; \
+	fi
 	install -d "$(SYSTEMD_USER_DIR)"
 	sed -e 's|@BINDIR@|$(PREFIX)/bin|g' -e 's|@PREFIX@|$(PREFIX)|g' \
 		dist/keyvibes.service > "$(SYSTEMD_USER_DIR)/keyvibes.service"
@@ -101,8 +118,16 @@ install: build
 	@echo "  systemctl --user daemon-reload"
 	@echo "  systemctl --user enable --now keyvibes"
 	@echo
-	@echo "If doctor cannot read /dev/input, add yourself to the 'input' group:"
-	@echo "  sudo usermod -aG input \$$USER   (then log out and back in)"
+	@if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx input; then \
+		echo "You are already in the 'input' group - log out and back in if"; \
+		echo "doctor still cannot read /dev/input."; \
+	else \
+		echo "If doctor cannot read /dev/input, either of these works:"; \
+		echo "  1. input group (classic):"; \
+		echo "       sudo usermod -aG input \$$USER   (then log out and back in)"; \
+		echo "  2. udev rule (session-scoped, no group change):"; \
+		echo "       see docs/linux-permissions.md"; \
+	fi
 
 uninstall:
 	rm -f "$(BINDIR)/keyvibes"
@@ -110,6 +135,7 @@ uninstall:
 	rm -f "$(DATADIR)/applications/keyvibes-ui.desktop"
 	rm -f "$(DATADIR)/icons/hicolor/scalable/apps/keyvibes.svg"
 	rm -f "$(SYSTEMD_USER_DIR)/keyvibes.service"
+	rm -f "$(UDEV_RULES_DIR)/70-keyvibes-uaccess.rules"
 	rm -rf "$(DATADIR)/keyvibes"
 	rm -rf "$(DOCDIR)"
 	# Directories we created, but only while they are still empty - and never
@@ -117,6 +143,7 @@ uninstall:
 	# empty-but-present ~/.local/bin is not ours to delete either. Literal
 	# paths, not dir/..: once dir is gone the .. lookup fails too.
 	-rmdir "$(SYSTEMD_USER_DIR)" "$(DESTDIR)$(PREFIX)/lib/systemd" \
+		"$(UDEV_RULES_DIR)" "$(DESTDIR)$(PREFIX)/lib/udev" \
 		"$(DATADIR)/doc" 2>/dev/null || true
 	@echo "Removed KeyVibes from PREFIX=$(PREFIX)"
 	@echo "Left alone: your configuration (typically ~/.config/keyvibes)."

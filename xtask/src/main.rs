@@ -53,6 +53,8 @@ enum Format {
     Pkgbuild,
     /// One-line installer script
     Installer,
+    /// Self-contained AppImage (engine + bundled libpipewire + packs)
+    Appimage,
     /// Everything above, plus checksums and the site's releases.json
     All,
 }
@@ -106,9 +108,15 @@ fn have(program: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Every `pack.toml` under `assets/soundpacks`, paired with the `.kvpack`
-/// it should produce (named after the directory, which is what `pack list`
-/// and the UI show as the file identity).
+/// Every pack manifest under `assets/soundpacks`, paired with the `.kvpack`
+/// it should produce (named after the pack, which is what `pack list` and
+/// the UI show as the file identity).
+///
+/// A manifest is any `*.toml` directly inside a pack directory. `pack.toml`
+/// is the common case, but the synthesized demo sources keep several packs
+/// in one directory (`default-src/{pack,holy-panda,linear}.toml`), and those
+/// must all be built - skipping them silently shipped packages with only
+/// the Default demo pack.
 fn pack_manifests(root: &Path) -> Vec<(PathBuf, PathBuf)> {
     let mut found = Vec::new();
     let search = root.join("assets/soundpacks");
@@ -123,21 +131,25 @@ fn pack_manifests(root: &Path) -> Vec<(PathBuf, PathBuf)> {
     dirs.sort();
 
     for dir in dirs {
-        let manifest = dir.join("pack.toml");
-        if manifest.is_file() {
-            let name = pack_name(&manifest, &dir);
-            found.push((manifest, search.join(format!("{name}.kvpack"))));
+        let direct = toml_manifests_in(&dir);
+        if !direct.is_empty() {
+            for manifest in direct {
+                let name = pack_name(&manifest, &dir);
+                found.push((manifest, search.join(format!("{name}.kvpack"))));
+            }
             continue;
         }
-        // A directory of packs, e.g. assets/soundpacks/upstream-src.
+        // A directory of pack directories, e.g. assets/soundpacks/upstream-src.
         let Ok(inner) = fs::read_dir(&dir) else {
             continue;
         };
         let mut children: Vec<PathBuf> = inner.flatten().map(|entry| entry.path()).collect();
         children.sort();
         for child in children {
-            let manifest = child.join("pack.toml");
-            if manifest.is_file() {
+            if !child.is_dir() {
+                continue;
+            }
+            for manifest in toml_manifests_in(&child) {
                 found.push((
                     manifest.clone(),
                     search.join(format!("{}.kvpack", pack_name(&manifest, &child))),
@@ -146,6 +158,21 @@ fn pack_manifests(root: &Path) -> Vec<(PathBuf, PathBuf)> {
         }
     }
     found
+}
+
+/// `*.toml` files directly inside `dir`, sorted, so a directory holding
+/// several pack manifests contributes all of them in a stable order.
+fn toml_manifests_in(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut manifests: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "toml"))
+        .collect();
+    manifests.sort();
+    manifests
 }
 
 /// The pack's own `name` when the manifest states one, else the directory.
@@ -280,6 +307,24 @@ fn dist(args: &DistArgs) -> Result<()> {
         produced.push(installer);
     }
 
+    if want(Format::Appimage) {
+        match make_appimage(&root, &stage, &out, &version) {
+            Ok(appimage) => {
+                println!("ok     {}", appimage.display());
+                produced.push(appimage);
+            }
+            Err(error) => {
+                // An AppImage is the preferred *download*, but it is not the
+                // only way to install KeyVibes. Missing tooling here must not
+                // fail the whole `dist all` run the way a broken deb would:
+                // the deb, portable tarball and installer still work. Report
+                // clearly and keep going; CI installs appimagetool so the
+                // release path does produce one.
+                println!("skip   AppImage not built: {error:#}");
+            }
+        }
+    }
+
     if args.format == Format::All {
         let sums = write_checksums(&out)?;
         println!("ok     {}", sums.display());
@@ -364,7 +409,7 @@ fn make_deb(root: &Path, stage: &Path, out: &Path, version: &str) -> Result<Path
          Installed-Size: {size}\n\
          Maintainer: KeyVibes Contributors <keyvibes@localhost>\n\
          Depends: libc6, libpipewire-0.3-0, libgtk-4-1, libadwaita-1-0\n\
-         Homepage: https://github.com/yourusername/keyvibes\n\
+         Homepage: https://github.com/IndraJeet-09/keyvibes\n\
          Description: Mechanical keyboard sounds for Linux\n\
           KeyVibes plays a mechanical switch sound on every key press. It\n\
           reads key presses from evdev and renders the mix to PipeWire.\n\
@@ -375,6 +420,44 @@ fn make_deb(root: &Path, stage: &Path, out: &Path, version: &str) -> Result<Path
           GTK 4/libadwaita desktop app (keyvibes-ui).\n"
     );
     fs::write(control_dir.join("control"), &control)?;
+    // postinst/prerm: reload udev so the shipped keyboard rule takes effect
+    // immediately instead of at next boot. No group is added and nothing is
+    // chmod'ed - udev only applies TAG+="uaccess" to event devices udev itself
+    // already classifies as keyboards, and logind then sets per-seat ACLs.
+    // Exit 0 unconditionally: a package must never fail to configure because
+    // udevadm is absent (containers, chroots) or reload returns nonzero.
+    let postinst = "#!/bin/sh\n\
+         set -e\n\
+         if [ -f /etc/udev/rules.d/70-keyvibes-uaccess.rules ] || \\\n\
+            [ -f /usr/lib/udev/rules.d/70-keyvibes-uaccess.rules ] || \\\n\
+            [ -f /lib/udev/rules.d/70-keyvibes-uaccess.rules ]; then\n\
+         \x20   command -v udevadm >/dev/null 2>&1 || exit 0\n\
+         \x20   udevadm control --reload-rules || true\n\
+         \x20   udevadm trigger --subsystem-match=input || true\n\
+         fi\n\
+         exit 0\n";
+    let prerm = "#!/bin/sh\n\
+         set -e\n\
+         # Reload after removal so a stale rule does not keep applying.\n\
+         # Package files are gone by the time prerm runs for `remove` on\n\
+         # dpkg's default order; the reload here is a harmless no-op for\n\
+         # upgrades (postrm is not called), so nothing else is needed.\n\
+         command -v udevadm >/dev/null 2>&1 || exit 0\n\
+         udevadm control --reload-rules || true\n\
+         exit 0\n";
+    // Note on conffiles: deliberately none. The rule ships in the
+    // package-owned /usr/lib/udev/rules.d (proper for a .deb); a local
+    // admin override belongs in /etc/udev/rules.d/, which udev reads first
+    // and dpkg never touches. No conffile means upgrades cannot prompt.
+    fs::write(control_dir.join("postinst"), postinst)?;
+    fs::write(control_dir.join("prerm"), prerm)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for name in ["postinst", "prerm"] {
+            fs::set_permissions(control_dir.join(name), fs::Permissions::from_mode(0o755))?;
+        }
+    }
     fs::write(work.join("debian-binary"), "2.0\n")?;
 
     run(
@@ -385,6 +468,8 @@ fn make_deb(root: &Path, stage: &Path, out: &Path, version: &str) -> Result<Path
             "-C",
             control_dir.to_str().context("path")?,
             "./control",
+            "./postinst",
+            "./prerm",
         ],
         root,
     )?;
@@ -429,7 +514,7 @@ fn make_rpm_spec(out: &Path, version: &str) -> Result<PathBuf> {
          Release:        1%{{?dist}}\n\
          Summary:        Mechanical keyboard sounds for Linux\n\
          License:        MIT OR Apache-2.0\n\
-         URL:            https://github.com/yourusername/keyvibes\n\
+         URL:            https://github.com/IndraJeet-09/keyvibes\n\
          BuildArch:      x86_64\n\
          \n\
          %description\n\
@@ -443,16 +528,37 @@ fn make_rpm_spec(out: &Path, version: &str) -> Result<PathBuf> {
          mkdir -p %{{buildroot}}\n\
          cp -a dist/stage/usr/. %{{buildroot}}/\n\
          \n\
+         %post\n\
+         # Reload udev so the keyboard rule takes effect now, not at next\n\
+         # boot. Never fail the transaction: containers and chroots may not\n\
+         # have udevadm, and a reload problem must not roll back an install.\n\
+         if [ -f /usr/lib/udev/rules.d/70-keyvibes-uaccess.rules ] || \\\n\
+            [ -f /lib/udev/rules.d/70-keyvibes-uaccess.rules ]; then\n\
+         \x20   command -v udevadm >/dev/null 2>&1 && {{\n\
+         \x20   \x20   udevadm control --reload-rules || :\n\
+         \x20   \x20   udevadm trigger --subsystem-match=input || :\n\
+         \x20   }}\n\
+         fi\n\
+         \n\
+         %postun\n\
+         # On final removal ($1 = 0) the rule is gone; reload so a stale\n\
+         # rule does not keep applying. On upgrade the file is still\n\
+         # present and %post already reloaded - skip to keep upgrades quiet.\n\
+         if [ $1 -eq 0 ]; then\n\
+         \x20   command -v udevadm >/dev/null 2>&1 && udevadm control --reload-rules || :\n\
+         fi\n\
+         \n\
          %files\n\
          %license LICENSE-MIT LICENSE-APACHE\n\
-         %doc README.md\n\
+         %doc README.md THIRD_PARTY_NOTICES.md\n\
          /usr/bin/keyvibes\n\
          /usr/bin/keyvibes-ui\n\
          /usr/share/keyvibes/*\n\
          /usr/share/applications/keyvibes-ui.desktop\n\
          /usr/share/icons/hicolor/scalable/apps/keyvibes.svg\n\
          /usr/share/doc/keyvibes/*\n\
-         /usr/lib/systemd/user/keyvibes.service\n"
+         /usr/lib/systemd/user/keyvibes.service\n\
+         /usr/lib/udev/rules.d/70-keyvibes-uaccess.rules\n"
     );
     let path = out.join(format!("keyvibes-{version}.spec"));
     fs::write(&path, spec)?;
@@ -507,7 +613,7 @@ fn make_pkgbuild(out: &Path, version: &str, portable: &str) -> Result<PathBuf> {
          pkgrel=1\n\
          pkgdesc='Mechanical keyboard sounds for Linux'\n\
          arch=('x86_64')\n\
-         url='https://github.com/yourusername/keyvibes'\n\
+         url='https://github.com/IndraJeet-09/keyvibes'\n\
          license=('MIT' 'Apache-2.0')\n\
          depends=('glibc' 'pipewire' 'gtk4' 'libadwaita')\n\
          makedepends=('cargo')\n\
@@ -533,6 +639,189 @@ fn make_pkgbuild(out: &Path, version: &str, portable: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
+// ----------------------------------------------------------------- appimage
+
+/// Builds a self-contained AppImage of the engine.
+///
+/// The AppImage carries the `keyvibes` engine, every installed pack, and the
+/// `libpipewire` client library so it runs on any glibc-based distribution
+/// without a package manager. It deliberately does **not** carry the GTK
+/// desktop app: bundling GTK4 and its whole dependency closure is fragile and
+/// distribution packages already ship it with the correct system libraries.
+/// PipeWire itself is a host service the client library connects to; it is
+/// documented as a prerequisite, never bundled.
+fn make_appimage(root: &Path, stage: &Path, out: &Path, version: &str) -> Result<PathBuf> {
+    let arch = std::env::consts::ARCH;
+    let file_name = format!("KeyVibes-{version}-{arch}.AppImage");
+    let appdir = out.join("KeyVibes.AppDir");
+    if appdir.try_exists()? {
+        fs::remove_dir_all(&appdir)?;
+    }
+    fs::create_dir_all(appdir.join("usr/bin"))?;
+    fs::create_dir_all(appdir.join("usr/lib/keyvibes"))?;
+    fs::create_dir_all(appdir.join("usr/share/keyvibes/packs"))?;
+    fs::create_dir_all(appdir.join("usr/share/icons/hicolor/scalable/apps"))?;
+
+    // Engine binary.
+    fs::copy(
+        stage.join("usr/bin/keyvibes"),
+        appdir.join("usr/bin/keyvibes"),
+    )?;
+    make_executable(&appdir.join("usr/bin/keyvibes"))?;
+
+    // Every pack the stage carries, so first launch needs no import step.
+    let packs_src = stage.join("usr/share/keyvibes/packs");
+    let mut pack_count = 0usize;
+    for entry in fs::read_dir(&packs_src)? {
+        let entry = entry?;
+        if entry.path().extension().is_some_and(|ext| ext == "kvpack") {
+            fs::copy(
+                entry.path(),
+                appdir
+                    .join("usr/share/keyvibes/packs")
+                    .join(entry.file_name()),
+            )?;
+            pack_count += 1;
+        }
+    }
+    if pack_count == 0 {
+        bail!(
+            "the staged tree at {} carries no packs; run without --no-build",
+            stage.display()
+        );
+    }
+
+    // The libpipewire *client* library. The PipeWire server and its SPA
+    // plugins stay on the host: the client only opens the session socket.
+    let pipewire_lib = find_pipewire_lib().with_context(|| {
+        "libpipewire-0.3.so.0 was not found; install the PipeWire client \
+         library (libpipewire-0.3-0 on Debian/Ubuntu, pipewire-libs on Fedora) \
+         to build an AppImage"
+    })?;
+    fs::copy(
+        &pipewire_lib,
+        appdir.join("usr/lib/keyvibes/libpipewire-0.3.so.0"),
+    )?;
+
+    // Icon and desktop entry, at the AppDir root where appimagetool expects them.
+    fs::copy(root.join("dist/keyvibes.svg"), appdir.join("keyvibes.svg"))?;
+    fs::copy(
+        root.join("dist/keyvibes.svg"),
+        appdir.join("usr/share/icons/hicolor/scalable/apps/keyvibes.svg"),
+    )?;
+    fs::write(appdir.join("KeyVibes.desktop"), APPIMAGE_DESKTOP)?;
+    fs::write(appdir.join("AppRun"), APPIMAGE_APPRUN)?;
+    make_executable(&appdir.join("AppRun"))?;
+    // A .DirIcon makes file managers show the icon for the AppDir itself.
+    fs::copy(root.join("dist/keyvibes.svg"), appdir.join(".DirIcon"))?;
+
+    let appimage = out.join(&file_name);
+    if appimage.try_exists()? {
+        fs::remove_file(&appimage)?;
+    }
+    match Command::new("appimagetool")
+        .args([
+            appdir.to_str().context("appdir path is not utf-8")?,
+            appimage.to_str().context("appimage path is not utf-8")?,
+        ])
+        .current_dir(root)
+        .output()
+    {
+        Ok(output) if output.status.success() => Ok(appimage),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!(
+                "appimagetool failed:\n{stderr}\n\
+                 install it from https://github.com/AppImage/appimagetool/releases \
+                 (or set PATH) and re-run"
+            )
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Leave the AppDir behind so the caller can still inspect or
+            // finish the build on a machine that has the tool.
+            bail!(
+                "appimagetool is not on PATH; the AppDir was staged at {} \
+                 install appimagetool and re-run, or use the portable tarball",
+                appdir.display()
+            )
+        }
+        Err(error) => Err(error).context("could not run appimagetool"),
+    }
+}
+
+/// Locates `libpipewire-0.3.so.0` via the dynamic loader's search path.
+fn find_pipewire_lib() -> Result<PathBuf> {
+    let name = "libpipewire-0.3.so.0";
+    let output = Command::new("ldconfig")
+        .arg("-p")
+        .output()
+        .ok()
+        .filter(|out| out.status.success());
+    if let Some(output) = output {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            let line = line.trim();
+            if let Some(rest) = line.strip_prefix(name) {
+                // "libpipewire-0.3.so.0 (libc6,x86-64) => /usr/lib/libpipewire-0.3.so.0"
+                if let Some((_, path)) = rest.split_once("=> ") {
+                    let path = PathBuf::from(path.trim());
+                    if path.is_file() {
+                        return Ok(path);
+                    }
+                }
+            }
+        }
+    }
+    // Fall back to the usual library directories.
+    for dir in ["/usr/lib", "/usr/lib64", "/lib", "/lib64"] {
+        let candidate = Path::new(dir).join(name);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    bail!("not found via ldconfig or standard library directories")
+}
+
+/// Desktop entry shown by file managers and app launchers for the AppImage.
+const APPIMAGE_DESKTOP: &str = r#"[Desktop Entry]
+Type=Application
+Version=1.0
+Name=KeyVibes
+GenericName=Keyboard sound
+Comment=Play a mechanical keyboard sound on every key press
+Exec=keyvibes
+Icon=keyvibes
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=keyboard;switch;sound;typing;mechanical;
+StartupNotify=true
+"#;
+
+/// AppRun: locate the bundled engine and packs, then exec it.
+///
+/// Sets `LD_LIBRARY_PATH` so the bundled libpipewire client is found, points
+/// `KEYVIBES_PACK_DIR` at the bundled packs (unless the user already set it),
+/// and gives a plain-language hint when the PipeWire session socket is absent
+/// instead of a bare dynamic-loader error.
+const APPIMAGE_APPRUN: &str = r#"#!/bin/sh
+# KeyVibes AppImage launcher. Generated by `cargo xtask dist appimage`.
+set -eu
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+export LD_LIBRARY_PATH="$HERE/usr/lib/keyvibes${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Bundled packs, unless the user points at their own.
+if [ -z "${KEYVIBES_PACK_DIR:-}" ]; then
+    KEYVIBES_PACK_DIR="$HERE/usr/share/keyvibes/packs"
+    export KEYVIBES_PACK_DIR
+fi
+# A missing PipeWire session is the common first-run failure; name it once,
+# plainly, instead of letting the engine fail on a socket error.
+if [ -z "${PIPEWIRE_RUNTIME_DIR:-}${XDG_RUNTIME_DIR:-}" ]; then
+    echo "KeyVibes: no XDG_RUNTIME_DIR; PipeWire (your desktop audio session) is probably not running." >&2
+    echo "  fix: log into a desktop session, then re-run. `keyvibes doctor` explains the rest." >&2
+fi
+exec "$HERE/usr/bin/keyvibes" "$@"
+"#;
+
 // ---------------------------------------------------------------- installer
 
 fn make_installer(out: &Path, version: &str, portable: &str) -> Result<PathBuf> {
@@ -540,13 +829,7 @@ fn make_installer(out: &Path, version: &str, portable: &str) -> Result<PathBuf> 
     let script = INSTALLER
         .replace("@VERSION@", version)
         .replace("@ARCHIVE@", portable)
-        .replace("@SHA256@", &sha)
-        .replace(
-            "@URL@",
-            &format!(
-                "https://github.com/yourusername/keyvibes/releases/download/v{version}/{portable}"
-            ),
-        );
+        .replace("@SHA256@", &sha);
     let path = out.join("install.sh");
     fs::write(&path, script)?;
     make_executable(&path)?;
@@ -559,42 +842,38 @@ const INSTALLER: &str = r#"#!/bin/sh
 #   ./install.sh                install into $HOME/.local
 #   PREFIX=/usr ./install.sh    install system-wide (needs sudo)
 #
-# Downloads the portable archive if it is not sitting next to this script,
-# checks it against the checksum baked in at release time, then unpacks it.
+# Requires the portable archive to sit next to this script (both are on the
+# release page). Verifies it against the checksum baked in at release time,
+# then unpacks and installs. The script itself never touches the network -
+# download both files with your browser or a fetch tool of your choice.
 set -eu
 
 VERSION="@VERSION@"
 ARCHIVE="@ARCHIVE@"
 SHA256="@SHA256@"
-URL="@URL@"
 PREFIX="${PREFIX:-$HOME/.local}"
 
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-fetch() {
-    if [ -f "$here/$ARCHIVE" ]; then
-        cp "$here/$ARCHIVE" "$work/$ARCHIVE"
-        return
-    fi
-    echo "Fetching $ARCHIVE"
-    if command -v curl >/dev/null 2>&1; then
-        curl -fL -o "$work/$ARCHIVE" "$URL"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -O "$work/$ARCHIVE" "$URL"
-    else
-        echo "Need curl or wget, or place $ARCHIVE next to this script." >&2
-        exit 1
-    fi
-}
+if [ ! -f "$here/$ARCHIVE" ]; then
+    echo "$ARCHIVE not found next to this script." >&2
+    echo "Download it from the same release page as this installer:" >&2
+    echo "  https://github.com/IndraJeet-09/keyvibes/releases" >&2
+    echo "and place it in the same directory, then re-run." >&2
+    exit 1
+fi
+cp "$here/$ARCHIVE" "$work/$ARCHIVE"
 
-fetch
-
-echo "$SHA256  $work/$ARCHIVE" | sha256sum --check --status 2>/dev/null || {
+if ! command -v sha256sum >/dev/null 2>&1; then
+    echo "sha256sum is required to verify $ARCHIVE but was not found." >&2
+    exit 1
+fi
+if ! echo "$SHA256  $work/$ARCHIVE" | sha256sum --check --status 2>/dev/null; then
     echo "Checksum mismatch for $ARCHIVE" >&2
     exit 1
-}
+fi
 
 tar -xzf "$work/$ARCHIVE" -C "$work"
 tree=$(find "$work" -maxdepth 1 -type d -name 'keyvibes-*' | head -n 1)
@@ -649,6 +928,8 @@ fn write_releases_json(out: &Path, version: &str, produced: &[PathBuf]) -> Resul
         }
         let kind = if name == "PKGBUILD" {
             "pkgbuild"
+        } else if name.ends_with(".AppImage") {
+            "appimage"
         } else {
             match name.split('.').next_back().unwrap_or("") {
                 "deb" => "deb",
@@ -673,6 +954,7 @@ fn write_releases_json(out: &Path, version: &str, produced: &[PathBuf]) -> Resul
         ("portable", "keyvibes-{}-x86_64-linux.tar.gz"),
         ("installer", "install.sh"),
         ("pkgbuild", "PKGBUILD"),
+        ("appimage", "KeyVibes-{}-x86_64.AppImage"),
     ];
     let mut file_entries = Vec::new();
     for (key, template) in files {
@@ -686,7 +968,7 @@ fn write_releases_json(out: &Path, version: &str, produced: &[PathBuf]) -> Resul
     let body = format!(
         "{{\n  \"name\": \"KeyVibes\",\n  \"version\": {version},\n  \"repository\": {repo},\n  \"files\": {{\n{files}\n  }},\n  \"artifacts\": [\n{artifacts}\n  ]\n}}\n",
         version = json(version),
-        repo = json("https://github.com/yourusername/keyvibes"),
+        repo = json("https://github.com/IndraJeet-09/keyvibes"),
         files = file_entries.join(",\n"),
         artifacts = entries.join(",\n"),
     );

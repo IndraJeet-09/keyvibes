@@ -38,6 +38,9 @@ jobs:
     - name: Build
       run: cargo build --verbose
 
+    - name: Build the sound packs
+      run: cargo xtask packs
+
     - name: Run tests
       run: cargo test --workspace --verbose
 

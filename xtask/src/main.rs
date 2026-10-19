@@ -218,23 +218,26 @@ fn pack_name(manifest: &Path, fallback: &Path) -> String {
         .into_owned()
 }
 
+/// Builds every pack the repository ships.
+///
+/// This calls the same `kv_pack::build_from_manifest` the `keyvibes pack
+/// build` command calls, rather than running that binary: the build tool
+/// must not need the engine it is building assets for, and a check that
+/// runs the tool must not need a release build of the whole workspace.
 fn build_packs() -> Result<Vec<PathBuf>> {
     let root = workspace_root()?;
-    let engine = root.join("target/release/keyvibes");
     let mut built = Vec::new();
     for (manifest, output) in pack_manifests(&root) {
-        run(
-            engine.to_str().context("engine path is not utf-8")?,
-            &[
-                "pack",
-                "build",
-                manifest.to_str().context("manifest path is not utf-8")?,
-                "-o",
-                output.to_str().context("output path is not utf-8")?,
-            ],
-            &root,
-        )?;
-        built.push(output);
+        let report = kv_pack::build_from_manifest(&manifest, &output, |_| {})
+            .with_context(|| format!("failed to build pack from {}", manifest.display()))?;
+        println!(
+            "pack  {} ({} keys, {} clips, {} bytes)",
+            report.output.display(),
+            report.key_count,
+            report.clip_count,
+            report.file_size
+        );
+        built.push(report.output);
     }
     Ok(built)
 }

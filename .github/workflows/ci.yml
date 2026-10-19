@@ -56,6 +56,16 @@ jobs:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
 
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          pkg-config \
+          libpipewire-0.3-dev \
+          libgtk-4-dev \
+          libadwaita-1-dev \
+          libudev-dev
+
     - name: Build documentation
       run: cargo doc --workspace --no-deps
 
@@ -71,12 +81,16 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           pkg-config \
+          make \
+          binutils \
           libpipewire-0.3-dev \
           libgtk-4-dev \
           libadwaita-1-dev \
           libudev-dev \
           libfuse2 \
-          zstd
+          zstd \
+          desktop-file-utils \
+          libgdk-pixbuf-2.0-dev
 
     - name: Install appimagetool
       run: |
@@ -84,9 +98,13 @@ jobs:
         curl -fsSL -o /tmp/appimagetool \
           https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
         chmod +x /tmp/appimagetool
-        # The runner has no FUSE; extract the tool and run the inner binary.
+        # The runner has no FUSE; extract the tool and expose the full tree
+        # so the AppRun wrapper can find its bundled binaries.
         cd /tmp && ./appimagetool --appimage-extract >/dev/null
-        sudo install -m755 /tmp/squashfs-root/AppRun /usr/local/bin/appimagetool
+        sudo mv /tmp/squashfs-root /opt/appimagetool
+        printf '#!/bin/sh\nexec /opt/appimagetool/AppRun "$@"\n' | sudo tee /usr/local/bin/appimagetool >/dev/null
+        sudo chmod +x /usr/local/bin/appimagetool
+        appimagetool --version
 
     - name: Build the artifacts
       run: cargo xtask dist all

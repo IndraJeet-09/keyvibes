@@ -7,7 +7,7 @@
 //! see the binary a user actually runs.
 //!
 //! Installing [`Counting`] as the binary's global allocator means
-//! [`snapshot`] reports exactly what this process did, on every thread, with
+//! `snapshot` reports exactly what this process did, on every thread, with
 //! no cooperation required from the code under measurement. The cost is two
 //! relaxed atomic increments per allocation, which is far below the cost of
 //! the allocation itself.

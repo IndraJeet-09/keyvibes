@@ -17,8 +17,8 @@
 //! thread. pipewire-rs hands both callbacks a `&mut` to the *same* user data,
 //! so KeyVibes deliberately registers **two** listeners:
 //!
-//! * listener A: `process` only, user data = [`RtState`] (owned by the RT thread)
-//! * listener B: `state_changed` only, user data = [`StreamWatch`] (loop thread)
+//! * listener A: `process` only, user data = `RtState` (owned by the RT thread)
+//! * listener B: `state_changed` only, user data = `StreamWatch` (loop thread)
 //!
 //! Neither shares mutable state other than the lock-free [`RtStats`] atomics.
 

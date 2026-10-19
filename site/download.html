@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Download — KeyVibes</title>
-<meta name="description" content="Download KeyVibes for Linux: deb, rpm, Arch PKGBUILD, portable archive, or the one-line installer.">
+<meta name="description" content="Download KeyVibes for Linux: deb, Arch PKGBUILD, portable archive, AppImage, or the offline installer.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/styles.css">
 </head>
@@ -59,40 +59,46 @@
               <td>Debian package</td>
               <td>Debian, Ubuntu, Mint, Pop!_OS</td>
               <td class="mono" data-file="deb">keyvibes_0.1.0_amd64.deb</td>
-              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Download</a></td>
-            </tr>
-            <tr>
-              <td>RPM package</td>
-              <td>Fedora, openSUSE, RHEL</td>
-              <td class="mono" data-file="rpm">keyvibes-0.1.0-1.x86_64.rpm</td>
-              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Download</a></td>
-            </tr>
-            <tr>
-              <td>Arch package</td>
-              <td>Arch Linux, Manjaro, EndeavourOS</td>
-              <td class="mono">PKGBUILD</td>
-              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Get</a></td>
+              <td><a class="btn-sm" href="https://github.com/IndraJeet-09/keyvibes/releases/latest/download/keyvibes_0.1.0_amd64.deb" rel="noopener">Download</a></td>
             </tr>
             <tr>
               <td>Portable archive</td>
               <td>Any glibc distribution</td>
               <td class="mono" data-file="portable">keyvibes-0.1.0-x86_64-linux.tar.gz</td>
-              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Download</a></td>
+              <td><a class="btn-sm" href="https://github.com/IndraJeet-09/keyvibes/releases/latest/download/keyvibes-0.1.0-x86_64-linux.tar.gz" rel="noopener">Download</a></td>
+            </tr>
+            <tr>
+              <td>AppImage</td>
+              <td>Any glibc distribution, no root</td>
+              <td class="mono" data-file="appimage">KeyVibes-0.1.0-x86_64.AppImage</td>
+              <td><a class="btn-sm" href="https://github.com/IndraJeet-09/keyvibes/releases/latest/download/KeyVibes-0.1.0-x86_64.AppImage" rel="noopener">Download</a></td>
+            </tr>
+            <tr>
+              <td>Arch package</td>
+              <td>Arch Linux, Manjaro, EndeavourOS</td>
+              <td class="mono" data-file="pkgbuild">PKGBUILD</td>
+              <td><a class="btn-sm" href="https://github.com/IndraJeet-09/keyvibes/releases/latest/download/PKGBUILD" rel="noopener">Get</a></td>
             </tr>
             <tr>
               <td>Installer script</td>
-              <td>Any of the above, automated</td>
+              <td>With the portable archive</td>
               <td class="mono" data-file="installer">install.sh</td>
-              <td><a class="btn-sm" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Download</a></td>
+              <td><a class="btn-sm" href="https://github.com/IndraJeet-09/keyvibes/releases/latest/download/install.sh" rel="noopener">Download</a></td>
+            </tr>
+            <tr>
+              <td>RPM spec</td>
+              <td>Fedora, openSUSE, RHEL (build with rpmbuild)</td>
+              <td class="mono" data-file="rpm-spec">keyvibes-0.1.0.spec</td>
+              <td><a class="btn-sm" href="https://github.com/IndraJeet-09/keyvibes/releases/latest/download/keyvibes-0.1.0.spec" rel="noopener">Get</a></td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div class="note">
-        Want the machine-readable list? <code>releases.json</code> next to
-        these files carries the version, file names, sizes and SHA-256 sums
-        for the current release.
+        Want the machine-readable list? <a href="https://github.com/IndraJeet-09/keyvibes/releases/latest/download/releases.json" rel="noopener"><code>releases.json</code></a>
+        next to these files carries the version, file names, sizes and SHA-256
+        sums for the current release.
       </div>
     </div>
   </section>
@@ -101,13 +107,14 @@
     <div class="wrap">
       <h2>Verify what you downloaded</h2>
       <p class="section-lede">
-        Every release publishes a <code>SHA256SUMS</code> file alongside the
-        artifacts. Checking it takes one command.
+        Every release publishes a <a href="https://github.com/IndraJeet-09/keyvibes/releases/latest/download/SHA256SUMS" rel="noopener"><code>SHA256SUMS</code></a>
+        file alongside the artifacts. Checking it takes one command.
       </p>
 <pre>sha256sum --check --ignore-missing SHA256SUMS
 <span class="c"># keyvibes_0.1.0_amd64.deb: OK</span></pre>
-      <p class="checksum">Compare the fingerprint against the value published in
-      the release notes. Nothing here downloads or executes on your behalf.</p>
+      <p class="checksum">The sums are published in the same GitHub release as
+      the binaries; they are not independently signed. Nothing here downloads
+      or executes on your behalf.</p>
     </div>
   </section>
 
@@ -155,8 +162,9 @@
         </div>
         <div class="step">
           <div>
-            <h3>Fedora / openSUSE</h3>
-<pre>sudo rpm -i keyvibes-0.1.0-1.x86_64.rpm</pre>
+            <h3>AppImage</h3>
+<pre>chmod +x KeyVibes-0.1.0-x86_64.AppImage
+./KeyVibes-0.1.0-x86_64.AppImage</pre>
           </div>
         </div>
         <div class="step">
@@ -168,14 +176,17 @@
         <div class="step">
           <div>
             <h3>Portable / installer</h3>
-<pre>tar -xzf keyvibes-0.1.0-x86_64-linux.tar.gz
-./keyvibes-0.1.0-x86_64-linux/install.sh</pre>
+            <p>Download both the archive and <code>install.sh</code> into the
+            same directory. The installer is offline: it verifies the archive
+            against a baked-in checksum, then unpacks and installs it.</p>
+<pre>chmod +x install.sh
+./install.sh</pre>
           </div>
         </div>
       </div>
 
       <div class="actions" style="margin-top:2rem">
-        <a class="btn btn-primary" href="https://github.com/yourusername/keyvibes/releases/latest" rel="noopener">Get the latest release</a>
+        <a class="btn btn-primary" href="https://github.com/IndraJeet-09/keyvibes/releases/latest" rel="noopener">Get the latest release</a>
         <a class="btn btn-ghost" href="index.html#install">Build from source</a>
       </div>
     </div>
@@ -187,8 +198,8 @@
     <span>KeyVibes — MIT OR Apache-2.0 licensed.</span>
     <nav>
       <a href="index.html">Home</a>
-      <a href="https://github.com/yourusername/keyvibes" rel="noopener">GitHub</a>
-      <a href="https://github.com/yourusername/keyvibes/issues" rel="noopener">Issues</a>
+      <a href="https://github.com/IndraJeet-09/keyvibes" rel="noopener">GitHub</a>
+      <a href="https://github.com/IndraJeet-09/keyvibes/issues" rel="noopener">Issues</a>
     </nav>
   </div>
 </footer>

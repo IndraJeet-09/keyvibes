@@ -13,7 +13,7 @@
 //! * idle stream suspend/resume
 //! * lifecycle state reporting
 //!
-//! The engine shares one lock-free [`SpscRing`](kv_ring::SpscRing) of
+//! The engine shares one lock-free [`SpscRing`] of
 //! [`PlayCommand`]s with the input threads for the whole process lifetime, so
 //! reconnecting never loses queued commands.
 

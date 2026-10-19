@@ -4,8 +4,8 @@
 
 /// Performs cubic (Hermite) interpolation between 4 samples.
 ///
-/// Given samples x[-1], x[0], x[1], x[2] and a fractional position
-/// t in [0, 1], returns the interpolated value.
+/// Given samples x\[-1\], x\[0\], x\[1\], x\[2\] and a fractional position
+/// t in \[0, 1\], returns the interpolated value.
 ///
 /// This is a 4-point, 3rd-order interpolation that provides good
 /// quality for pitch shifting and sample-rate conversion.

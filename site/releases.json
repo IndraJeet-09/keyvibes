@@ -1,19 +1,21 @@
 {
   "name": "KeyVibes",
   "version": "0.1.0",
-  "repository": "https://github.com/yourusername/keyvibes",
+  "repository": "https://github.com/IndraJeet-09/keyvibes",
   "files": {
     "deb": "keyvibes_0.1.0_amd64.deb",
-    "rpm": "keyvibes-0.1.0-1.x86_64.rpm",
+    "rpm-spec": "keyvibes-0.1.0.spec",
     "portable": "keyvibes-0.1.0-x86_64-linux.tar.gz",
     "installer": "install.sh",
-    "pkgbuild": "PKGBUILD"
+    "pkgbuild": "PKGBUILD",
+    "appimage": "KeyVibes-0.1.0-x86_64.AppImage"
   },
   "artifacts": [
-    {"name": "keyvibes-0.1.0-x86_64-linux.tar.gz", "kind": "portable", "size": 18369823, "sha256": "dbd3d55d530cdb2b1625dcbd03911a1d658526f011d444e3cb84d600935e7288"},
-    {"name": "keyvibes_0.1.0_amd64.deb", "kind": "deb", "size": 18370142, "sha256": "5dba13319ec5d78d47c9f8c02edd6807583859d13c973d12095cb69af3c9c24e"},
-    {"name": "PKGBUILD", "kind": "pkgbuild", "size": 685, "sha256": "a5bb3498eb4a1c100ca091ec3a7ec188e064c43e99fd220f95a9bc214d8765e7"},
-    {"name": "keyvibes-0.1.0.spec", "kind": "rpm-spec", "size": 841, "sha256": "acc5fd4cb37dc25888acd8a38689a9b38b8f15c13e86e48cf2ae43b093789a7e"},
-    {"name": "install.sh", "kind": "installer", "size": 1963, "sha256": "9af21b73d217dbf1a3d6362f0be0ad324c03df0a226a95a0b0b01490c3500d08"}
+    {"name": "keyvibes-0.1.0-x86_64-linux.tar.gz", "kind": "portable", "size": 20990028, "sha256": "54356753e9da9a51bcbf4670bba01b9eeeb1c21ff52b651fc81f33766e4dcf53"},
+    {"name": "keyvibes_0.1.0_amd64.deb", "kind": "deb", "size": 20989726, "sha256": "0aad4adf730c2c3109b180d866b60b01abb79788f68a957a12822b29a50b805c"},
+    {"name": "PKGBUILD", "kind": "pkgbuild", "size": 685, "sha256": "9116b631457ac4eccb8b1d3d0658c79a8c3f84b5f181c00fd2ce4f2a2c32f735"},
+    {"name": "keyvibes-0.1.0.spec", "kind": "rpm-spec", "size": 1693, "sha256": "09ee61309e6e9e0972d990a8e7bf176baa8ecf8c51757c918bc1cc3b94d44b48"},
+    {"name": "install.sh", "kind": "installer", "size": 2145, "sha256": "5596bcf0642a4c14ca5469a8351a33c27965ed79eae6004c3f446ed7c68c0631"},
+    {"name": "KeyVibes-0.1.0-x86_64.AppImage", "kind": "appimage", "size": 20335096, "sha256": "eda54b86d1e84cbe405dd61ecc8770686f134213bfda6207c35ed18293e98437"}
   ]
 }

@@ -950,7 +950,7 @@ fn write_releases_json(out: &Path, version: &str, produced: &[PathBuf]) -> Resul
 
     let files = [
         ("deb", "keyvibes_{}_amd64.deb"),
-        ("rpm", "keyvibes-{}-1.x86_64.rpm"),
+        ("rpm-spec", "keyvibes-{}.spec"),
         ("portable", "keyvibes-{}-x86_64-linux.tar.gz"),
         ("installer", "install.sh"),
         ("pkgbuild", "PKGBUILD"),

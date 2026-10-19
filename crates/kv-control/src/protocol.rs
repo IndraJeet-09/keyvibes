@@ -197,7 +197,7 @@ pub struct PackInfo {
     pub clips: u32,
     /// Sample rate the clips were authored at.
     pub sample_rate: u32,
-    /// Covered keys out of [`kv_core::PhysicalKey::COUNT`]'s 104.
+    /// Covered keys out of `kv_core::PhysicalKey::COUNT`'s 104.
     pub coverage: u32,
     /// Whether this pack has any release clips.
     pub has_release: bool,

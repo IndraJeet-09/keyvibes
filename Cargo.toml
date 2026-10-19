@@ -20,7 +20,7 @@ edition = "2021"
 rust-version = "1.75"
 authors = ["KeyVibes Contributors"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/keyvibes"
+repository = "https://github.com/IndraJeet-09/keyvibes"
 
 [workspace.dependencies]
 # Core crates

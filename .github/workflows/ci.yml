@@ -229,6 +229,7 @@ jobs:
           dist/out/*.deb
           dist/out/*.tar.gz
           dist/out/install.sh
+          dist/out/uninstall.sh
           dist/out/PKGBUILD
           dist/out/*.spec
           dist/out/SHA256SUMS

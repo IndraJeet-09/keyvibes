@@ -896,6 +896,10 @@ fn dist(args: &DistArgs) -> Result<()> {
         let installer = make_installer(&out, &version, &portable_name)?;
         println!("ok     {}", installer.display());
         produced.push(installer);
+
+        let uninstaller = make_uninstaller(&out, &version)?;
+        println!("ok     {}", uninstaller.display());
+        produced.push(uninstaller);
     }
 
     if want(Format::Appimage) {
@@ -1518,6 +1522,109 @@ if ! id -nG | tr ' ' '\n' | grep -qx input; then
 fi
 "#;
 
+// -------------------------------------------------------------- uninstaller
+
+/// Writes the offline uninstaller next to the installer. It needs nothing
+/// from the build - it removes by path, not by archive - so the template is
+/// only stamped with the version for the header comment.
+fn make_uninstaller(out: &Path, version: &str) -> Result<PathBuf> {
+    let script = UNINSTALLER.replace("@VERSION@", version);
+    let path = out.join("uninstall.sh");
+    fs::write(&path, script)?;
+    make_executable(&path)?;
+    Ok(path)
+}
+
+const UNINSTALLER: &str = r#"#!/bin/sh
+# KeyVibes @VERSION@ uninstaller.
+#
+#   ./uninstall.sh                remove from $HOME/.local
+#   PREFIX=/usr ./uninstall.sh    remove a system-wide install (needs sudo)
+#
+# Removes exactly what install.sh put in place: the engine and desktop
+# binaries, the desktop entry and icon, the sound packs, the docs, and the
+# systemd user unit. Stops the service first if it is running. Your
+# configuration (typically ~/.config/keyvibes) is left alone.
+set -eu
+
+PREFIX="${PREFIX:-$HOME/.local}"
+
+stop_service() {
+    command -v systemctl >/dev/null 2>&1 || return 0
+    systemctl --user stop keyvibes.service 2>/dev/null || true
+    systemctl --user disable keyvibes.service 2>/dev/null || true
+}
+
+removed=0
+remove() {
+    # Only report and count things that were actually there.
+    [ -e "$1" ] || [ -L "$1" ] || return 0
+    rm -f "$1"
+    echo "  removed $1"
+    removed=$((removed + 1))
+}
+
+remove_tree() {
+    [ -e "$1" ] || return 0
+    rm -rf "$1"
+    echo "  removed $1"
+    removed=$((removed + 1))
+}
+
+echo "Removing KeyVibes from $PREFIX ..."
+stop_service
+
+# Binaries.
+remove "$PREFIX/bin/keyvibes"
+remove "$PREFIX/bin/keyvibes-ui"
+
+# Desktop entry and icon.
+remove "$PREFIX/share/applications/keyvibes-ui.desktop"
+remove "$PREFIX/share/icons/hicolor/scalable/apps/keyvibes.svg"
+
+# Sound packs and docs (whole trees - they are ours alone).
+remove_tree "$PREFIX/share/keyvibes"
+remove_tree "$PREFIX/share/doc/keyvibes"
+
+# systemd user unit. install.sh copies it into lib/systemd/user under the
+# prefix; a make install with a home prefix may have used share/systemd/user
+# instead, so clear both.
+remove "$PREFIX/lib/systemd/user/keyvibes.service"
+remove "$PREFIX/share/systemd/user/keyvibes.service"
+
+# A udev rule is only present if the package or `make install` with a system
+# prefix put one there. Needs root to remove, same as the install did.
+remove "$PREFIX/lib/udev/rules.d/70-keyvibes-uaccess.rules"
+
+# Empty directories we may have created - never the prefix or share itself.
+rmdir "$PREFIX/lib/systemd/user" 2>/dev/null || true
+rmdir "$PREFIX/lib/systemd" 2>/dev/null || true
+rmdir "$PREFIX/share/systemd/user" 2>/dev/null || true
+rmdir "$PREFIX/share/systemd" 2>/dev/null || true
+rmdir "$PREFIX/share/icons/hicolor/scalable/apps" 2>/dev/null || true
+rmdir "$PREFIX/share/icons/hicolor/scalable" 2>/dev/null || true
+rmdir "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+rmdir "$PREFIX/share/icons" 2>/dev/null || true
+rmdir "$PREFIX/lib/udev/rules.d" 2>/dev/null || true
+rmdir "$PREFIX/lib/udev" 2>/dev/null || true
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+fi
+
+echo
+if [ "$removed" -eq 0 ]; then
+    echo "Nothing to remove - KeyVibes does not appear to be installed under $PREFIX."
+else
+    echo "Removed $removed file(s)/tree(s)."
+fi
+echo "Left alone: your configuration (typically ~/.config/keyvibes)."
+echo "Remove it with: rm -rf \${XDG_CONFIG_HOME:-\$HOME/.config}/keyvibes"
+"#;
+
 // --------------------------------------------------------------- checksums
 
 fn write_checksums(out: &Path) -> Result<PathBuf> {
@@ -1545,6 +1652,9 @@ fn write_checksums(out: &Path) -> Result<PathBuf> {
 fn artifact_kind(name: &str) -> &'static str {
     if name == "PKGBUILD" {
         return "pkgbuild";
+    }
+    if name == "uninstall.sh" {
+        return "uninstaller";
     }
     if name.ends_with(".AppImage") {
         return "appimage";

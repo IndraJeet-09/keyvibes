@@ -3,17 +3,21 @@
   "version": "0.1.1",
   "repository": "https://github.com/IndraJeet-09/keyvibes",
   "files": {
+    "appimage": "KeyVibes-0.1.1-x86_64.AppImage",
     "deb": "keyvibes_0.1.1_amd64.deb",
     "installer": "install.sh",
     "pkgbuild": "PKGBUILD",
     "portable": "keyvibes-0.1.1-x86_64-linux.tar.gz",
-    "rpm-spec": "keyvibes-0.1.1.spec"
+    "rpm-spec": "keyvibes-0.1.1.spec",
+    "uninstaller": "uninstall.sh"
   },
   "artifacts": [
-    {"name": "keyvibes-0.1.1-x86_64-linux.tar.gz", "kind": "portable", "size": 16642277, "sha256": "0e4cd225c03eff22a5d431a855079dc37c3d6c9e75a97cab3131da7cb6fa7ee2"},
-    {"name": "keyvibes_0.1.1_amd64.deb", "kind": "deb", "size": 16640256, "sha256": "720e376a8b37356f3d4a58da10420d991a33208c96cda4a7f24578574ef46fc2"},
+    {"name": "keyvibes-0.1.1-x86_64-linux.tar.gz", "kind": "portable", "size": 16642285, "sha256": "6b966d25ff8d1f85753e419c06caddc9a08bcbd0c24cd14a3e93b5e6623f32c0"},
+    {"name": "keyvibes_0.1.1_amd64.deb", "kind": "deb", "size": 16640250, "sha256": "b71306b4115284bac75dce679f41392c82b43b15b186f28125592f13c3f49441"},
     {"name": "PKGBUILD", "kind": "pkgbuild", "size": 685, "sha256": "910e7dfa86cf39b618925cb971ee1e0728aa6d85030c58794dab8b5aa21e1530"},
     {"name": "keyvibes-0.1.1.spec", "kind": "rpm-spec", "size": 2117, "sha256": "fc63c820f08d52155060d9008231b5afe12d5123a4b74a59861f77f5f2643f69"},
-    {"name": "install.sh", "kind": "installer", "size": 2145, "sha256": "7875162fc99987edf68380157bd8e4f7f00ceebd7d62873cc9e99ef3e9b35170"}
+    {"name": "install.sh", "kind": "installer", "size": 2145, "sha256": "4a6528832c5f4c39c47aff8e57146931a7d924241aa45092a694c3a5426cdc2b"},
+    {"name": "uninstall.sh", "kind": "uninstaller", "size": 3145, "sha256": "44dbf46b3e7d4d9487c3221b2f8c8f9f37611c44fd043073339409dfd709532f"},
+    {"name": "KeyVibes-0.1.1-x86_64.AppImage", "kind": "appimage", "size": 16251384, "sha256": "decf3fefc620741d55bacd486a17d179822ad2b5922e46ac023a7e2e417f1552"}
   ]
 }

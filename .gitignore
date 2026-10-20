@@ -21,13 +21,13 @@ Thumbs.db
 !/assets/soundpacks/.gitkeep
 !/assets/soundpacks/upstream-src/
 
-# Generated
+# Generated (but committed where the site needs them on Vercel)
 /docs/api/
 /dist/stage/
 /dist/out/
-/site/releases.json
-/site/packs.json
-/site/assets/audio/
+
+# Vercel
+.vercel/
 
 # AI tooling
 .kilo/

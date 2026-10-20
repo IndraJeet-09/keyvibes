@@ -228,6 +228,7 @@ jobs:
           dist/out/*.AppImage
           dist/out/*.deb
           dist/out/*.tar.gz
+          dist/out/*.zip
           dist/out/install.sh
           dist/out/uninstall.sh
           dist/out/PKGBUILD

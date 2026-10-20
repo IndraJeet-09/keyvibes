@@ -921,6 +921,14 @@ fn dist(args: &DistArgs) -> Result<()> {
     }
 
     if args.format == Format::All {
+        // Before the checksums, so both bundles are listed in them: one
+        // download that carries every artifact this run produced.
+        let bundles = make_bundles(&out, &version, &produced)?;
+        for bundle in &bundles {
+            println!("ok     {}", bundle.display());
+            produced.push(bundle.clone());
+        }
+
         let sums = write_checksums(&out)?;
         println!("ok     {}", sums.display());
         produced.push(sums);
@@ -1625,6 +1633,50 @@ echo "Left alone: your configuration (typically ~/.config/keyvibes)."
 echo "Remove it with: rm -rf \${XDG_CONFIG_HOME:-\$HOME/.config}/keyvibes"
 "#;
 
+// ------------------------------------------------------------------ bundles
+
+/// Packs every artifact this run produced into one directory and ships it
+/// as a tar.gz and a zip: a single download carrying the whole release.
+///
+/// Checksums and releases.json are written after this runs, so they stay on
+/// the release page beside the bundles rather than inside them at a version
+/// only this script could update. The zip needs `zip`; where it is absent
+/// (a minimal host, a container) python3's zipfile module writes the same
+/// archive instead, and without either only the tar.gz is reported missing.
+fn make_bundles(out: &Path, version: &str, produced: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let name = format!("keyvibes-{version}-all-x86_64");
+    let stage = out.join(&name);
+    if stage.try_exists()? {
+        fs::remove_dir_all(&stage)?;
+    }
+    fs::create_dir_all(&stage)?;
+    for path in produced {
+        if path.is_file() {
+            fs::copy(path, stage.join(file_name(path)?))?;
+        }
+    }
+
+    let mut bundles = Vec::new();
+
+    let tar_name = format!("{name}.tar.gz");
+    run("tar", &["-czf", &tar_name, &name], out)?;
+    bundles.push(out.join(&tar_name));
+
+    let zip_name = format!("{name}.zip");
+    if have("zip") {
+        run("zip", &["-q", "-r", &zip_name, &name], out)?;
+        bundles.push(out.join(&zip_name));
+    } else if have("python3") {
+        run("python3", &["-m", "zipfile", "-c", &zip_name, &name], out)?;
+        bundles.push(out.join(&zip_name));
+    } else {
+        println!("skip   ZIP bundle not built: neither zip nor python3 is installed");
+    }
+
+    fs::remove_dir_all(&stage)?;
+    Ok(bundles)
+}
+
 // --------------------------------------------------------------- checksums
 
 fn write_checksums(out: &Path) -> Result<PathBuf> {
@@ -1658,6 +1710,14 @@ fn artifact_kind(name: &str) -> &'static str {
     }
     if name.ends_with(".AppImage") {
         return "appimage";
+    }
+    // The combined bundles: their extensions alone would call the tar.gz
+    // a "portable" and the zip "other".
+    if name.ends_with("-all-x86_64.tar.gz") {
+        return "combined-tar";
+    }
+    if name.ends_with("-all-x86_64.zip") {
+        return "combined-zip";
     }
     match name.split('.').next_back().unwrap_or("") {
         "deb" => "deb",

@@ -4,6 +4,8 @@
   "repository": "https://github.com/IndraJeet-09/keyvibes",
   "files": {
     "appimage": "KeyVibes-0.1.1-x86_64.AppImage",
+    "combined-tar": "keyvibes-0.1.1-all-x86_64.tar.gz",
+    "combined-zip": "keyvibes-0.1.1-all-x86_64.zip",
     "deb": "keyvibes_0.1.1_amd64.deb",
     "installer": "install.sh",
     "pkgbuild": "PKGBUILD",
@@ -18,6 +20,8 @@
     {"name": "keyvibes-0.1.1.spec", "kind": "rpm-spec", "size": 2117, "sha256": "fc63c820f08d52155060d9008231b5afe12d5123a4b74a59861f77f5f2643f69"},
     {"name": "install.sh", "kind": "installer", "size": 2145, "sha256": "4a6528832c5f4c39c47aff8e57146931a7d924241aa45092a694c3a5426cdc2b"},
     {"name": "uninstall.sh", "kind": "uninstaller", "size": 3145, "sha256": "44dbf46b3e7d4d9487c3221b2f8c8f9f37611c44fd043073339409dfd709532f"},
-    {"name": "KeyVibes-0.1.1-x86_64.AppImage", "kind": "appimage", "size": 16251384, "sha256": "decf3fefc620741d55bacd486a17d179822ad2b5922e46ac023a7e2e417f1552"}
+    {"name": "KeyVibes-0.1.1-x86_64.AppImage", "kind": "appimage", "size": 16251384, "sha256": "decf3fefc620741d55bacd486a17d179822ad2b5922e46ac023a7e2e417f1552"},
+    {"name": "keyvibes-0.1.1-all-x86_64.tar.gz", "kind": "combined-tar", "size": 48865756, "sha256": "e220c6d3e4dcfcc194def546cde20cae86d5ea973cfe6cc45f671e84501ebc1c"},
+    {"name": "keyvibes-0.1.1-all-x86_64.zip", "kind": "combined-zip", "size": 48874343, "sha256": "4a889c8a07b439493979c09548a2f972b204a2882833e203a47763171f44fb8a"}
   ]
 }
